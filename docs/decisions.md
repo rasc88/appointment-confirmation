@@ -1,0 +1,130 @@
+# Decisions
+
+Calls already made, with the reasons. They are settled here so issues stop
+re-litigating them. To change one, change it here first, in the same pull
+request as the code.
+
+Where this file and `docs/spec.md` disagree, this file wins.
+
+## Product
+
+### 1. One business per deployment, all staff equal
+
+There is no business table and no roles. Every signed-in staff member can
+do everything, including editing settings.
+
+Why: the target is a small business where everyone at the front desk
+handles bookings. Roles and multi-tenancy would add permission checks to
+every endpoint for a requirement nobody asked for.
+
+### 2. The app never sends messages
+
+Staff copy the link or a pre-written message and send it themselves.
+
+Why: SMS and WhatsApp APIs cost money, need sign-up and verification, and
+add an external service that can fail. Staff already message clients from
+their phones.
+
+### 3. Business rules live in a settings row, not in code or env vars
+
+Hours, thresholds, the message template, time zone, and business name are
+fields on the single `BusinessSettings` row, edited on the Settings page.
+
+Why: each business tunes them differently, and changing a rule should not
+need a redeploy. Environment variables hold only deployment values and
+secrets.
+
+### 4. At-risk reasons are computed on read, never stored
+
+The dashboard calculates them from the appointment, the client's history,
+the settings, and the current time, as pure functions.
+
+Why: a stored flag needs a background job to keep it current, and goes
+stale the moment a setting changes. Computed reasons are always right, and
+the cost is negligible at a few hundred appointments a day.
+
+### 5. Confirmation tokens are stored hashed and shown once
+
+The database keeps a SHA-256 hash. The full link is returned only when it
+is created or regenerated.
+
+Why: a leaked database must not hand out working links. Cost accepted:
+staff who lose a link regenerate it, which invalidates the old one.
+
+### 6. Cancelled is final, and a time change resets confirmation
+
+A cancelled appointment cannot be reopened. Changing the start time puts
+the appointment back to `pending`.
+
+Why: reopening invites confusion about which reply counts. A client who
+confirmed 10:00 did not confirm 15:00.
+
+## Technical
+
+### 7. Express 5 + TypeScript + Prisma + PostgreSQL everywhere
+
+The same database engine in development, tests, and production. No SQLite.
+
+Why: a Prisma schema targets one database provider. Running tests on the
+database production uses avoids bugs that only appear in production.
+
+### 8. npm workspaces monorepo
+
+`backend/`, `frontend/`, and `e2e/` in one repository, with root scripts
+that run every workspace.
+
+Why: the rubric asks for tests that run with one command, and one
+`npm test` at the root does that.
+
+### 9. Contract first
+
+`openapi.yaml` is written before the backend. Zod schemas validate
+requests to match it.
+
+Why: the frontend and backend can be built against the same contract, and
+QA has a fixed reference to compare responses with.
+
+### 10. ESLint with typescript-eslint, plus `tsc --noEmit`
+
+One lint configuration for every workspace. Lint and typecheck must pass
+before any commit and in CI.
+
+Why: the most widely documented choice for Express and React with
+TypeScript.
+
+### 11. One EC2 instance for dev and production, behind CloudFront
+
+A single `t4g.small` runs both environments as separate Docker Compose
+projects. Each has its own CloudFront distribution with the default
+`*.cloudfront.net` domain. No custom domain, no Caddy.
+
+Why: lowest cost that still meets the rubric. The t4g.small free trial
+covers one instance until December 31, 2026, and CloudFront gives HTTPS
+without buying a domain. Cost accepted: no high availability, and dev and
+production share a host (mitigated by container memory limits).
+
+### 12. Telemetry goes straight to Grafana Cloud's free tier
+
+The app exports traces, metrics, and logs over OTLP with no collector.
+
+Why: free, already proven in the owner's previous project, and a
+collector would use memory the small instance needs.
+
+## Process
+
+### 13. One agent at a time
+
+Issues are worked sequentially, on a branch per issue in the main
+checkout. No worktrees.
+
+Why: a roughly 20-hour project gains little from parallel agents, and
+sequential work avoids merge and database conflicts between branches.
+
+### 14. The orchestrator merges; the owner releases
+
+The orchestrator squash-merges a pull request after QA PASS and green CI.
+Only the repository owner promotes to production, and only the owner may
+bypass branch protection, when CI itself is broken.
+
+Why: the rubric needs a human gate on production, not on every merge.
+Keeping merges with the orchestrator lets the backlog run without waiting.
