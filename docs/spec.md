@@ -42,6 +42,7 @@ The following are intentionally excluded:
 - Deposits, payments, or cancellation fees.
 - Multiple businesses (multi-tenant). One deployment serves one business.
 - Roles and permissions between staff. All staff are equal.
+- Different rules per service or per staff member. Settings apply to the whole business.
 - Calendar sync (Google Calendar, Outlook) or overlap detection between appointments.
 - Real-time push updates. The dashboard refreshes by polling.
 - Native mobile apps. The web UI is responsive instead.
@@ -89,7 +90,7 @@ sequenceDiagram
 ```
 
 ### 5.1 Creating an Appointment
-Staff pick an existing client or create a new one (name, optional phone), choose the staff member, enter the service name, start time, and duration. The app creates the appointment in `pending` status with a fresh confirmation token and shows a **Copy link** button and a **Copy message** button. The message is a short, pre-filled text containing the business name, date, time, and link.
+Staff pick an existing client or create a new one (name, optional phone), choose the staff member, enter the service name, start time, and duration (pre-filled with the default duration from settings). The app creates the appointment in `pending` status with a fresh confirmation token and shows a **Copy link** button and a **Copy message** button. The message is built from the message template in settings, so each business can use its own wording and language.
 
 ### 5.2 Client Confirms or Cancels
 The client opens `/c/{token}`. If the appointment is `pending`, they see **Confirm** and **Cancel**. If already `confirmed`, they see the confirmation and a **Cancel** option. Cancelling asks for a second tap to prevent accidents. After the appointment start time, the link shows a read-only "this appointment has passed" page.
@@ -135,18 +136,45 @@ An appointment is **at risk** when it is `pending` or `confirmed` and any of the
 
 | Rule | Condition | Shown reason |
 |---|---|---|
-| No reply | Status is `pending` and the start time is within 24 hours | "No reply yet" |
-| History | The client has 1 or more `no_show` appointments in the last 180 days | "Missed N before" |
+| No reply | Status is `pending` and the start time is within `noReplyWindowHours` | "No reply yet" |
+| History | The client has at least `noShowThreshold` `no_show` appointments in the last `noShowLookbackDays` | "Missed N before" |
 
-A cancellation made less than 12 hours before the start time is flagged **Late cancellation**, so staff know the slot may still be refillable.
+A cancellation made less than `lateCancellationHours` before the start time is flagged **Late cancellation**, so staff know the slot may still be refillable.
 
-All thresholds are constants in one module so they can be tuned later.
+All thresholds come from business settings (6.7). The rules are pure functions that take the appointment, the client's history, the settings, and the current time, so they are unit-tested without a database.
+
+Changing a setting applies immediately to every upcoming appointment, because at-risk reasons are calculated when the dashboard loads, not stored.
 
 ### 6.6 Dashboard
 - Defaults to today in the business time zone.
 - Shows each appointment's time, client name, staff member, service, status, and at-risk reasons.
 - Shows counts per group at the top.
 - Refreshes every 30 seconds without a full page reload.
+
+### 6.7 Business Settings
+One settings record per deployment, edited by any staff member on a **Settings** page. Every setting has a default, so the app works before anyone opens the page.
+
+| Setting | Default | Allowed values | Used for |
+|---|---|---|---|
+| `businessName` | "My Business" | 1–80 characters | Client page and message |
+| `timeZone` | `UTC` | Any IANA zone, for example `Europe/Madrid` | Dashboard day, all displayed times |
+| `noReplyWindowHours` | 24 | 1–168 | "No reply yet" rule |
+| `noShowThreshold` | 1 | 1–10 | "Missed N before" rule |
+| `noShowLookbackDays` | 180 | 7–730 | "Missed N before" rule |
+| `lateCancellationHours` | 12 | 0–168 (0 turns the flag off) | "Late cancellation" flag |
+| `defaultDurationMinutes` | 30 | 5–480 | Pre-fills new appointments |
+| `messageTemplate` | See below | 1–500 characters, must contain `{link}` | **Copy message** text |
+
+Default message template:
+
+```
+Hi {client}, this is {business}. Please confirm your {service} appointment on {date} at {time}: {link}
+```
+
+Placeholders: `{client}`, `{business}`, `{service}`, `{staff}`, `{date}`, `{time}`, `{link}`. Unknown placeholders are rejected when saving, so a typo can't reach a client.
+
+- Settings are validated on save, and invalid values return `422` with the field that failed.
+- Changing `timeZone` does not move appointments. Times are stored in UTC, so the same moment is shown in the new zone.
 
 ---
 
@@ -188,6 +216,7 @@ All thresholds are constants in one module so they can be tuned later.
 | Confirm / cancel from the dashboard | — | — | ✅ (confirm before start) |
 | Mark attended / no-show | — | — | ✅ |
 | Add or deactivate staff | — | — | ✅ |
+| View and edit business settings | — | — | ✅ |
 
 ---
 
@@ -216,11 +245,11 @@ A single container serves the API under `/v1` and the built frontend as static f
 |---|---|
 | `DATABASE_URL` | Postgres connection string |
 | `SESSION_SECRET` | Signs session tokens |
-| `BUSINESS_NAME` | Shown on client pages and messages |
-| `BUSINESS_TIMEZONE` | IANA zone, for example `Europe/Madrid` |
 | `PUBLIC_BASE_URL` | Used to build confirmation links |
 | `APP_ENV`, `APP_VERSION` | Environment and image tag, reported by `/health` and telemetry |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` | Telemetry export; off when unset |
+
+Environment variables hold only deployment and secret values. Everything about how the business works lives in business settings (6.7), so it can change without a redeploy.
 
 ---
 
@@ -262,6 +291,23 @@ All timestamps are stored in UTC.
 | tokenHash | text | unique, SHA-256 of the confirmation token |
 | createdAt, updatedAt | timestamp | |
 
+### BusinessSettings
+A single row, created with the defaults from 6.7 on first start if missing.
+
+| Field | Type | Notes |
+|---|---|---|
+| id | integer | always 1 |
+| businessName | text | |
+| timeZone | text | IANA zone |
+| noReplyWindowHours | integer | |
+| noShowThreshold | integer | |
+| noShowLookbackDays | integer | |
+| lateCancellationHours | integer | |
+| defaultDurationMinutes | integer | |
+| messageTemplate | text | |
+| updatedAt | timestamp | |
+| updatedByStaffId | uuid, nullable | FK StaffMember |
+
 Indexes: `Appointment(startsAt)`, `Appointment(clientId, status)`, unique `Appointment(tokenHash)`.
 
 ---
@@ -288,13 +334,14 @@ All endpoints are under `/v1` and defined in `openapi.yaml`. Errors use a single
 | POST | `/appointments/{id}/outcome` | `{ "outcome": "attended" \| "no_show" }` |
 | POST | `/appointments/{id}/undo-outcome` | Revert an outcome |
 | POST | `/appointments/{id}/link` | Regenerate link; returns the new link once |
+| GET, PATCH | `/settings` | Read / update business settings |
 
 Because only the token hash is stored, the full link is returned only when it is created or regenerated. The UI keeps it in memory so staff can copy it right away; if lost, staff regenerate it.
 
 ### 12.2 Client (token in path, no session)
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/public/appointments/{token}` | Appointment details for the client page |
+| GET | `/public/appointments/{token}` | Appointment details for the client page, including business name and time zone |
 | POST | `/public/appointments/{token}/confirm` | Confirm |
 | POST | `/public/appointments/{token}/cancel` | Cancel |
 
@@ -352,19 +399,20 @@ When the alert fires, a coding agent receives the alert, investigates with logs 
 2. A staff member can sign in with the seeded account, create an appointment, and copy its link.
 3. Opening that link in a private window shows the appointment and lets the client confirm.
 4. The staff dashboard shows the appointment as `confirmed` within 30 seconds, without a manual reload.
-5. A `pending` appointment starting within 24 hours appears under **At risk** with "No reply yet".
+5. With default settings, a `pending` appointment starting within 24 hours appears under **At risk** with "No reply yet".
 6. A client with a previous no-show is flagged on their next appointment.
 7. After the start time, the link no longer accepts confirm or cancel.
 8. Staff can confirm or cancel an appointment from the dashboard, and it shows whether the client or staff made the change.
-9. Regenerating a link makes the old link return 404.
-10. Unit, integration, and end-to-end tests run with one command each and pass in CI.
-11. No client name, phone number, or token appears in exported logs or traces.
+9. Changing `noReplyWindowHours` on the Settings page changes which appointments show "No reply yet" on the next dashboard refresh.
+10. Regenerating a link makes the old link return 404.
+11. Unit, integration, and end-to-end tests run with one command each and pass in CI.
+12. No client name, phone number, or token appears in exported logs or traces.
 
 ---
 
 ## 17. Demo Seed Data
 
-- Business name "Demo Studio", time zone `Europe/Madrid` (configurable).
+- Business settings with name "Demo Studio", time zone `Europe/Madrid`, and the other settings at their defaults.
 - Two staff accounts: `alex@demo.test` and `sam@demo.test`, password `demo1234`.
 - Eight clients, two of them with past no-shows.
 - Appointments today and tomorrow covering every status and every at-risk rule.
