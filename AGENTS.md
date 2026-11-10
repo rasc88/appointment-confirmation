@@ -12,7 +12,7 @@ Documents
 - `docs/process.md` - how work moves from a GitHub issue to merged code
 - `docs/task-template.md` - the format every groomed issue follows
 - `docs/team/` - one file per agent role: PM, engineer, QA, on-call engineer
-- `openapi.yaml` - the API contract (added by the contract issue)
+- `openapi.yaml` - the API contract
 
 Layout
 
@@ -45,7 +45,8 @@ example `PORT=3001 npm run dev`.
   `docs/spec.md` section 17
 - `npm test` - Vitest once (no watch) in every workspace except e2e
 - `npm run lint` - ESLint with typescript-eslint, every workspace, from the
-  one root `eslint.config.js`
+  one root `eslint.config.js`, then Redocly on `openapi.yaml`
+  (`npm run lint:openapi` runs only Redocly; rules in `redocly.yaml`)
 - `npm run typecheck` - `tsc --noEmit`, every workspace
 - `npm run test:e2e` - Playwright against the Docker Compose stack
 - `docker compose up --build` - the whole app with Postgres, one command

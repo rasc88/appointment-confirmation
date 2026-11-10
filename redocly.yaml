@@ -1,0 +1,21 @@
+extends:
+  - recommended
+
+rules:
+  # The repository has no license yet, and the contract should not claim one.
+  info-license: off
+  # GET /health has no 4xx response by design: it reports 200 or 503 only (spec section 12.3).
+  operation-4xx-response: off
+  # Raised from warning: #5 seeds its mock data from these examples, so an invalid one must fail the lint.
+  no-invalid-media-type-examples: error
+  # Raised from warning, so an operation with an empty `responses` map fails the lint.
+  operation-2xx-response: error
+  # OpenAPI 3.1 makes `responses` optional, but every operation in this contract must declare its responses.
+  rule/operation-responses-required:
+    subject:
+      type: Operation
+    assertions:
+      required:
+        - responses
+    message: Every operation must declare its responses.
+    severity: error

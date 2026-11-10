@@ -114,7 +114,8 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 - Email and password sign-in. Passwords are hashed with a slow hash (bcrypt or argon2).
 - The session is a signed token in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie, valid for 12 hours.
 - Any signed-in staff member can add a staff account (name, email, initial password).
-- Staff accounts cannot be deleted in the MVP. They can be marked inactive, which blocks sign-in and hides them from the staff picker.
+- Staff accounts cannot be deleted in the MVP. They can be marked inactive, which blocks sign-in, hides them from the staff picker, and ends their existing sessions (their next request returns `401`).
+- A staff member cannot deactivate themselves (`409`), so the last active account cannot lock everyone out.
 
 ### 6.2 Clients
 - A client has a name and an optional phone number.
@@ -123,7 +124,9 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 
 ### 6.3 Appointments
 - Fields: client, staff member, service name, start time, duration in minutes.
-- Staff can edit any field while the appointment is `pending` or `confirmed`. Editing the start time resets status to `pending`, because the client confirmed a different time.
+- Staff can edit the staff member, service, start time, and duration while the appointment is `pending` or `confirmed`. Editing the start time resets status to `pending`, because the client confirmed a different time.
+- The client of an appointment cannot be changed after creation. The link has already gone to that client; staff cancel and create a new appointment instead.
+- A new start time, on create or edit, must be in the future.
 - Staff can confirm a `pending` appointment before its start time. The confirmation records that it was confirmed by staff.
 - Staff can cancel a `pending` or `confirmed` appointment. The cancellation records that it was cancelled by staff.
 
@@ -132,6 +135,7 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 - The token is stored hashed, so a database leak does not expose working links.
 - The link stops accepting actions once the appointment has started.
 - Regenerating a link invalidates the previous token immediately.
+- A link can be regenerated only while the appointment is `pending` or `confirmed` and before its start time.
 
 ### 6.5 At-Risk Rules
 An appointment is **at risk** when it is `pending` or `confirmed` and any of these is true:
@@ -190,9 +194,10 @@ Placeholders: `{client}`, `{business}`, `{service}`, `{staff}`, `{date}`, `{time
 | `confirmed` | Change start time | Staff | `pending` |
 | `pending`, `confirmed` | Mark attended (after start) | Staff | `attended` |
 | `pending`, `confirmed` | Mark no-show (after start) | Staff | `no_show` |
-| `attended`, `no_show` | Undo outcome | Staff | previous status |
+| `attended`, `no_show` | Undo outcome | Staff | `confirmed` if `confirmedBy` is set, otherwise `pending` |
 
 - `cancelled` is final in the MVP. A client who changes their mind contacts the business, and staff create a new appointment.
+- Changing the start time clears `confirmedBy`, so a later undo of an outcome returns to `pending`.
 - Confirming an already `confirmed` appointment succeeds without changes, so double taps are harmless.
 - Any other transition is rejected with `409 Conflict`.
 
@@ -352,7 +357,7 @@ Indexes: `Appointment(startsAt)`, `Appointment(clientId, status)`, unique `Appoi
 
 ## 12. API Surface
 
-All endpoints are under `/v1` and defined in `openapi.yaml`. Errors use a single JSON shape: `{ "error": { "code", "message" } }`.
+All endpoints are under `/v1` and defined in `openapi.yaml`. Errors use a single JSON shape: `{ "error": { "code", "message", "field"? } }`. `field` is present only on `422` and names the request field or query parameter that failed.
 
 ### 12.1 Staff (session cookie required)
 | Method | Path | Purpose |
@@ -374,7 +379,9 @@ All endpoints are under `/v1` and defined in `openapi.yaml`. Errors use a single
 | POST | `/appointments/{id}/link` | Regenerate link; returns the new link once |
 | GET, PATCH | `/settings` | Read / update business settings |
 
-Because only the token hash is stored, the full link is returned only when it is created or regenerated. The UI keeps it in memory so staff can copy it right away; if lost, staff regenerate it.
+Because only the token hash is stored, the full link is returned only when it is created or regenerated, once, together with the message template rendered with that link. The UI keeps both in memory so staff can copy them right away; if lost, staff regenerate the link.
+
+Sign-out (`POST /auth/logout`) needs no valid session and always returns `204`, so an expired session can still sign out.
 
 ### 12.2 Client (token in path, no session)
 | Method | Path | Purpose |
@@ -398,7 +405,7 @@ Unknown or invalidated tokens return `404`, never a hint about whether the appoi
 - Request URLs for `/c/{token}` and `/v1/public/appointments/{token}` are recorded only by their route template, never the raw path.
 - Public endpoints are rate-limited per IP (for example 30 requests per minute) to slow token guessing. Behind CloudFront, the client IP comes from the `X-Forwarded-For` header CloudFront adds.
 - Sign-in is rate-limited per email and IP.
-- All state-changing staff endpoints require the session cookie and reject cross-site requests.
+- All state-changing staff endpoints require the session cookie and reject cross-site requests: a request whose `Origin` header is not the app's own origin is rejected with `403`.
 - Secrets come only from environment variables, never from the repository.
 
 ---
