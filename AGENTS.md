@@ -27,14 +27,25 @@ Commands
 These are the commands the scaffolding issues must provide. Until an issue
 adds one, it does not exist yet - check `package.json` before relying on it.
 
+Use Node 24 (`nvm use` reads `.nvmrc`). `.env.example` lists the local
+settings: `DATABASE_URL` points at the Postgres that `docker compose up -d db`
+starts, and `PORT` is the backend port. Copy it to `.env` (ignored by git).
+Nothing reads `.env` yet, so set `PORT` in the shell to change it, for
+example `PORT=3001 npm run dev`.
+
 - `npm install` - install every workspace
-- `docker compose up -d db` - start only Postgres, for local development
-- `npm run dev` - backend and frontend with reload
+- `docker compose up -d db` - start only Postgres 17 on `localhost:5432`
+  (user and password `app`), with the `appointments` and
+  `appointments_test` databases, for local development
+- `npm run dev` - backend on `PORT` (default 3000) and Vite on
+  `http://localhost:5173`, with reload; Vite proxies `/v1` to the backend
+  on the same `PORT`. Does not need Postgres
 - `npm run db:migrate` - apply Prisma migrations (`prisma migrate dev`)
 - `npm run db:seed` - reset and fill the database with the demo data from
   `docs/spec.md` section 17
-- `npm test` - unit and integration tests of every workspace except e2e
-- `npm run lint` - ESLint with typescript-eslint, every workspace
+- `npm test` - Vitest once (no watch) in every workspace except e2e
+- `npm run lint` - ESLint with typescript-eslint, every workspace, from the
+  one root `eslint.config.js`
 - `npm run typecheck` - `tsc --noEmit`, every workspace
 - `npm run test:e2e` - Playwright against the Docker Compose stack
 - `docker compose up --build` - the whole app with Postgres, one command
