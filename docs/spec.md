@@ -111,7 +111,7 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 ## 6. Functional Requirements
 
 ### 6.1 Authentication and Staff Accounts
-- Email and password sign-in. Passwords are hashed with a slow hash (bcrypt or argon2).
+- Email and password sign-in. Passwords are hashed with `bcryptjs` (cost 12).
 - The session is a signed token in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie, valid for 12 hours.
 - Any signed-in staff member can add a staff account (name, email, initial password).
 - Staff accounts cannot be deleted in the MVP. They can be marked inactive, which blocks sign-in, hides them from the staff picker, and ends their existing sessions (their next request returns `401`).
@@ -298,7 +298,7 @@ Once peer review is over, deleting the CloudFormation stack stops all AWS charge
 
 ## 11. Data Model
 
-All timestamps are stored in UTC.
+All timestamps are stored in UTC. Ids marked `uuid` are text columns holding a UUID, so a malformed id finds nothing and returns `404`. There is no session table: sessions are signed cookies (decision 17).
 
 ### StaffMember
 | Field | Type | Notes |
@@ -335,7 +335,7 @@ All timestamps are stored in UTC.
 | createdAt, updatedAt | timestamp | |
 
 ### BusinessSettings
-A single row, created with the defaults from 6.7 on first start if missing.
+A single row. The defaults from 6.7 are column defaults, and the server creates the row at start if it is missing.
 
 | Field | Type | Notes |
 |---|---|---|
