@@ -12,11 +12,13 @@
   "scripts": {
     "dev": "concurrently --names backend,frontend --prefix-colors blue,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
     "test": "npm test --workspaces",
-    "lint": "eslint .",
+    "lint": "eslint . && npm run lint:openapi",
+    "lint:openapi": "redocly lint openapi.yaml",
     "typecheck": "npm run typecheck --workspaces"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@redocly/cli": "^2.77.0",
     "concurrently": "^10.0.7",
     "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",

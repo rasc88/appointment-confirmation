@@ -1,0 +1,1627 @@
+openapi: 3.1.0
+info:
+  title: Appointment Confirmation API
+  version: 1.0.0
+  description: |
+    Staff of a small service business record appointments and send each
+    client a private link to confirm or cancel. See `docs/spec.md` section 12.
+
+    Every error uses the shared `Error` shape. Every timestamp is an ISO 8601
+    date-time, sent in UTC (`Z`) in responses.
+servers:
+  - url: /v1
+    description: Same origin as the web app.
+security:
+  - sessionCookie: []
+tags:
+  - name: auth
+    description: Sign in, sign out, and the current staff member.
+  - name: staff
+    description: Staff accounts.
+  - name: clients
+    description: Clients and their appointment history.
+  - name: appointments
+    description: The day view and every staff action on an appointment.
+  - name: settings
+    description: Business settings (spec section 6.7).
+  - name: public
+    description: The client page behind a confirmation link. No session.
+  - name: operations
+    description: Health check.
+
+paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Sign in with email and password.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Signed in. The session cookie is set.
+          headers:
+            Set-Cookie:
+              description: |
+                The session cookie:
+                `session=<signed token>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=43200`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffMember'
+              examples:
+                StaffMemberAlex:
+                  $ref: '#/components/examples/StaffMemberAlex'
+        '401':
+          $ref: '#/components/responses/InvalidCredentials'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Sign out and clear the session cookie.
+      description: Returns 204 whether or not a valid session was sent, so an expired session can still sign out.
+      security: []
+      responses:
+        '204':
+          description: Signed out. Returned whether or not a valid session was sent.
+          headers:
+            Set-Cookie:
+              description: |
+                Clears the session cookie:
+                `session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`.
+              schema:
+                type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getCurrentStaffMember
+      summary: Get the signed-in staff member.
+      responses:
+        '200':
+          description: The signed-in staff member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffMember'
+              examples:
+                StaffMemberAlex:
+                  $ref: '#/components/examples/StaffMemberAlex'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /staff:
+    get:
+      tags: [staff]
+      operationId: listStaff
+      summary: List every staff account, active and inactive.
+      responses:
+        '200':
+          description: All staff accounts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StaffMember'
+              example:
+                - id: 0b8f6a52-3c1e-4d7a-9f20-6e5b1c2d3a41
+                  name: Alex
+                  email: alex@demo.test
+                  isActive: true
+                  createdAt: '2026-11-01T08:00:00Z'
+                - id: 5d2c7e19-8a4b-4f63-b0d5-1e9a7c3f2b86
+                  name: Sam
+                  email: sam@demo.test
+                  isActive: true
+                  createdAt: '2026-11-01T08:05:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [staff]
+      operationId: createStaffMember
+      summary: Add a staff account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStaffMemberRequest'
+      responses:
+        '201':
+          description: The new staff account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffMember'
+              example:
+                id: 9e4a1f37-2b6c-4d85-a0e3-7c5f8b2d1e90
+                name: Jordan
+                email: jordan@demo.test
+                isActive: true
+                createdAt: '2026-11-10T09:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: |
+            `email_taken`: another staff account already has this email,
+            compared case-insensitively.
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /staff/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [staff]
+      operationId: updateStaffMember
+      summary: Rename or deactivate a staff account.
+      description: |
+        Deactivating (`isActive: false`) blocks sign-in, hides the account
+        from the staff picker, and ends its existing sessions: its next
+        request returns 401. Nobody can deactivate themselves.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStaffMemberRequest'
+      responses:
+        '200':
+          description: The updated staff account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffMember'
+              example:
+                id: 5d2c7e19-8a4b-4f63-b0d5-1e9a7c3f2b86
+                name: Sam
+                email: sam@demo.test
+                isActive: false
+                createdAt: '2026-11-01T08:05:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: |
+            `cannot_deactivate_self`: the body sets `isActive: false` on the
+            caller's own id.
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /clients:
+    get:
+      tags: [clients]
+      operationId: searchClients
+      summary: Search clients by name or phone.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: |
+            Matches the client's name or phone, case-insensitively, by
+            substring. A client with a `null` phone is matched by name only.
+            Returns at most 20 clients, sorted by name. Without `q`, returns
+            the first 20 clients by name.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+      responses:
+        '200':
+          description: At most 20 matching clients, sorted by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 20
+                items:
+                  $ref: '#/components/schemas/Client'
+              example:
+                - id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+                  name: Maria Lopez
+                  phone: +34 600 123 456
+                  createdAt: '2026-10-02T10:15:00Z'
+                - id: 7a1d4e82-9c3b-4f60-a5e7-8b2f1c6d0e94
+                  name: Mario Rossi
+                  phone: null
+                  createdAt: '2026-10-05T16:40:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+    post:
+      tags: [clients]
+      operationId: createClient
+      summary: Create a client.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClientRequest'
+      responses:
+        '201':
+          description: The new client.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+              example:
+                id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+                name: Maria Lopez
+                phone: +34 600 123 456
+                createdAt: '2026-11-10T09:12:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /clients/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [clients]
+      operationId: getClient
+      summary: Get a client with their appointment history and no-show count.
+      responses:
+        '200':
+          description: The client, their appointments (newest first), and their all-time no-show count.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientDetail'
+              example:
+                id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+                name: Maria Lopez
+                phone: +34 600 123 456
+                createdAt: '2026-10-02T10:15:00Z'
+                noShowCount: 1
+                appointments:
+                  - id: 2c8f5a17-4b9e-4d36-a1c0-9e7d3b5f8a24
+                    client:
+                      id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+                      name: Maria Lopez
+                      phone: +34 600 123 456
+                    staffMember:
+                      id: 0b8f6a52-3c1e-4d7a-9f20-6e5b1c2d3a41
+                      name: Alex
+                    service: Haircut
+                    startsAt: '2026-11-11T09:30:00Z'
+                    durationMinutes: 30
+                    status: pending
+                    confirmedBy: null
+                    cancelledBy: null
+                    statusChangedAt: '2026-11-10T09:15:00Z'
+                    createdAt: '2026-11-10T09:15:00Z'
+                    updatedAt: '2026-11-10T09:15:00Z'
+                  - id: 6b3e9d14-7f2a-4c85-9e01-4d8a2b7c5f36
+                    client:
+                      id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+                      name: Maria Lopez
+                      phone: +34 600 123 456
+                    staffMember:
+                      id: 0b8f6a52-3c1e-4d7a-9f20-6e5b1c2d3a41
+                      name: Alex
+                    service: Haircut
+                    startsAt: '2026-10-20T15:00:00Z'
+                    durationMinutes: 30
+                    status: no_show
+                    confirmedBy: null
+                    cancelledBy: null
+                    statusChangedAt: '2026-10-20T16:00:00Z'
+                    createdAt: '2026-10-15T09:00:00Z'
+                    updatedAt: '2026-10-20T16:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /appointments:
+    get:
+      tags: [appointments]
+      operationId: getDayView
+      summary: List one day's appointments with their at-risk reasons.
+      parameters:
+        - name: date
+          in: query
+          required: false
+          description: |
+            The day to show, `YYYY-MM-DD`. Defaults to today in the business
+            time zone. The day runs from 00:00 to 24:00 local time in that
+            zone, so it can be 23 or 25 hours long around a DST change. A
+            malformed `date` is 422 with `field: date`.
+          schema:
+            type: string
+            format: date
+        - name: staffId
+          in: query
+          required: false
+          description: |
+            Only this staff member's appointments. A malformed `staffId` is
+            422 with `field: staffId`. An unknown `staffId` returns an empty
+            list.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The day's appointments, sorted by `startsAt`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DayView'
+              example:
+                date: '2026-11-11'
+                timeZone: Europe/Madrid
+                appointments:
+                  - id: 2c8f5a17-4b9e-4d36-a1c0-9e7d3b5f8a24
+                    client:
+                      id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+                      name: Maria Lopez
+                      phone: +34 600 123 456
+                    staffMember:
+                      id: 0b8f6a52-3c1e-4d7a-9f20-6e5b1c2d3a41
+                      name: Alex
+                    service: Haircut
+                    startsAt: '2026-11-11T09:30:00Z'
+                    durationMinutes: 30
+                    status: pending
+                    confirmedBy: null
+                    cancelledBy: null
+                    statusChangedAt: '2026-11-10T09:15:00Z'
+                    createdAt: '2026-11-10T09:15:00Z'
+                    updatedAt: '2026-11-10T09:15:00Z'
+                    atRiskReasons:
+                      - code: no_reply
+                      - code: no_show_history
+                        noShowCount: 1
+                    isLateCancellation: false
+                  - id: 8d4a2e63-1c7f-4b95-b3e8-5a0f9c2d7e41
+                    client:
+                      id: 7a1d4e82-9c3b-4f60-a5e7-8b2f1c6d0e94
+                      name: Mario Rossi
+                      phone: null
+                    staffMember:
+                      id: 5d2c7e19-8a4b-4f63-b0d5-1e9a7c3f2b86
+                      name: Sam
+                    service: Beard trim
+                    startsAt: '2026-11-11T11:00:00Z'
+                    durationMinutes: 20
+                    status: cancelled
+                    confirmedBy: client
+                    cancelledBy: client
+                    statusChangedAt: '2026-11-11T02:00:00Z'
+                    createdAt: '2026-11-09T12:00:00Z'
+                    updatedAt: '2026-11-11T02:00:00Z'
+                    atRiskReasons: []
+                    isLateCancellation: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+          description: |
+            `validation_error` with `field` set to `date` or `staffId` when
+            that query parameter is malformed.
+    post:
+      tags: [appointments]
+      operationId: createAppointment
+      summary: Create an appointment and its confirmation link.
+      description: |
+        Creates the appointment as `pending` with a fresh confirmation token.
+        The link and the rendered message are returned only here and by
+        `POST /appointments/{id}/link`, never again (decision 5).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAppointmentRequest'
+      responses:
+        '201':
+          description: The new appointment with its link and ready-to-send message, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentWithLink'
+              examples:
+                AppointmentWithLink:
+                  $ref: '#/components/examples/AppointmentWithLink'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+          description: |
+            `validation_error`, with `field` naming the request field that
+            failed. Besides the schema rules, this covers: `startsAt` not in
+            the future (`field: startsAt`), an unknown `clientId`
+            (`field: clientId`), and an unknown or inactive `staffMemberId`
+            (`field: staffMemberId`).
+
+  /appointments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [appointments]
+      operationId: updateAppointment
+      summary: Edit an appointment's staff member, service, start time, or duration.
+      description: |
+        Allowed only while the appointment is `pending` or `confirmed`;
+        otherwise 409 `invalid_transition`. The client cannot be changed.
+        A `startsAt` different from the current one must be in the future
+        (else 422), and an unknown or inactive `staffMemberId` is 422. A
+        changed `startsAt` puts the appointment back to `pending` with
+        `confirmedBy: null`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAppointmentRequest'
+      responses:
+        '200':
+          description: The updated appointment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+              examples:
+                AppointmentPending:
+                  $ref: '#/components/examples/AppointmentPending'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: |
+            `invalid_transition`: the appointment is not `pending` or
+            `confirmed`.
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+          description: |
+            `validation_error`, with `field` naming the request field that
+            failed. Besides the schema rules, this covers: a `startsAt`
+            different from the current one that is not in the future
+            (`field: startsAt`), and an unknown or inactive `staffMemberId`
+            (`field: staffMemberId`).
+
+  /appointments/{id}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [appointments]
+      operationId: confirmAppointment
+      summary: Confirm an appointment on the client's behalf.
+      description: |
+        Confirms a `pending` appointment before its start time and records
+        `confirmedBy: staff`. Confirming an already `confirmed` appointment
+        returns 200 with the appointment unchanged.
+      responses:
+        '200':
+          description: The confirmed appointment, or the unchanged one if it was already `confirmed`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+              examples:
+                AppointmentConfirmed:
+                  $ref: '#/components/examples/AppointmentConfirmed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: |
+            `invalid_transition`: the appointment is `cancelled`, `attended`,
+            or `no_show`. `appointment_started`: the appointment is `pending`
+            and its start time has passed.
+
+  /appointments/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [appointments]
+      operationId: cancelAppointment
+      summary: Cancel an appointment on the client's behalf.
+      description: |
+        Cancels a `pending` or `confirmed` appointment and records
+        `cancelledBy: staff`. Cancelling an already `cancelled` appointment
+        is 409 `invalid_transition` (spec section 7).
+      responses:
+        '200':
+          description: The cancelled appointment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+              examples:
+                AppointmentCancelled:
+                  $ref: '#/components/examples/AppointmentCancelled'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: |
+            `invalid_transition`: the appointment is not `pending` or
+            `confirmed`, including when it is already `cancelled`.
+
+  /appointments/{id}/outcome:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [appointments]
+      operationId: recordAppointmentOutcome
+      summary: Mark an appointment as attended or no-show.
+      description: Allowed for a `pending` or `confirmed` appointment once its start time has passed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutcomeRequest'
+      responses:
+        '200':
+          description: The appointment with its outcome.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+              examples:
+                AppointmentAttended:
+                  $ref: '#/components/examples/AppointmentAttended'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: |
+            `invalid_transition`: the appointment is not `pending` or
+            `confirmed`. `appointment_not_started`: its start time has not
+            passed yet.
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /appointments/{id}/undo-outcome:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [appointments]
+      operationId: undoAppointmentOutcome
+      summary: Revert an attended or no-show outcome.
+      description: |
+        Returns an `attended` or `no_show` appointment to its previous
+        status: `confirmed` if `confirmedBy` is set, `pending` otherwise.
+      responses:
+        '200':
+          description: The appointment back in its previous status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+              examples:
+                AppointmentConfirmed:
+                  $ref: '#/components/examples/AppointmentConfirmed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: |
+            `invalid_transition`: the appointment is not `attended` or
+            `no_show`.
+
+  /appointments/{id}/link:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [appointments]
+      operationId: regenerateAppointmentLink
+      summary: Regenerate an appointment's confirmation link.
+      description: |
+        Issues a new token. The previous link stops working immediately and
+        returns 404. Regenerating is only allowed while the appointment is
+        `pending` or `confirmed` and before its start time. The new link and
+        rendered message are returned only in this response.
+      responses:
+        '200':
+          description: The appointment with its new link and ready-to-send message, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentWithLink'
+              examples:
+                AppointmentWithLink:
+                  $ref: '#/components/examples/AppointmentWithLink'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: |
+            `invalid_transition`: the appointment is not `pending` or
+            `confirmed`. `appointment_started`: its start time has passed.
+
+  /settings:
+    get:
+      tags: [settings]
+      operationId: getSettings
+      summary: Get the business settings.
+      responses:
+        '200':
+          description: The business settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessSettings'
+              examples:
+                BusinessSettings:
+                  $ref: '#/components/examples/BusinessSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags: [settings]
+      operationId: updateSettings
+      summary: Update one or more business settings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSettingsRequest'
+      responses:
+        '200':
+          description: The updated business settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessSettings'
+              examples:
+                BusinessSettings:
+                  $ref: '#/components/examples/BusinessSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+          description: |
+            `validation_error`, with `field` naming the setting that failed.
+            Besides the schema rules, this covers a `timeZone` that is not an
+            IANA zone and a `messageTemplate` with a placeholder other than
+            `{client}`, `{business}`, `{service}`, `{staff}`, `{date}`,
+            `{time}`, `{link}`.
+
+  /public/appointments/{token}:
+    parameters:
+      - $ref: '#/components/parameters/Token'
+    get:
+      tags: [public]
+      operationId: getPublicAppointment
+      summary: Get the appointment behind a confirmation link.
+      description: |
+        Returns 200 for every status, including after the start time, when
+        `hasStarted` is `true` and the client page shows the read-only "has
+        passed" page.
+      security: []
+      responses:
+        '200':
+          description: The appointment details for the client page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicAppointment'
+              examples:
+                PublicAppointmentPending:
+                  $ref: '#/components/examples/PublicAppointmentPending'
+        '404':
+          $ref: '#/components/responses/PublicNotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /public/appointments/{token}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/Token'
+    post:
+      tags: [public]
+      operationId: confirmPublicAppointment
+      summary: Confirm the appointment behind a confirmation link.
+      description: |
+        Confirms a `pending` appointment before its start time and records
+        `confirmedBy: client`. Confirming an already `confirmed` appointment
+        returns 200 with the appointment unchanged. After the start time it
+        returns 409 `appointment_started`.
+      security: []
+      responses:
+        '200':
+          description: The confirmed appointment, or the unchanged one if it was already `confirmed`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicAppointment'
+              example:
+                businessName: Demo Studio
+                timeZone: Europe/Madrid
+                service: Haircut
+                staffName: Alex
+                startsAt: '2026-11-11T09:30:00Z'
+                durationMinutes: 30
+                status: confirmed
+                hasStarted: false
+        '404':
+          $ref: '#/components/responses/PublicNotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: |
+            `invalid_transition`: the appointment is `cancelled`, `attended`,
+            or `no_show`. `appointment_started`: its start time has passed.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /public/appointments/{token}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/Token'
+    post:
+      tags: [public]
+      operationId: cancelPublicAppointment
+      summary: Cancel the appointment behind a confirmation link.
+      description: |
+        Cancels a `pending` or `confirmed` appointment before its start time
+        and records `cancelledBy: client`. Cancelling an already `cancelled`
+        appointment is 409 `invalid_transition` (spec section 7). After the
+        start time it returns 409 `appointment_started`.
+      security: []
+      responses:
+        '200':
+          description: The cancelled appointment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicAppointment'
+              example:
+                businessName: Demo Studio
+                timeZone: Europe/Madrid
+                service: Haircut
+                staffName: Alex
+                startsAt: '2026-11-11T09:30:00Z'
+                durationMinutes: 30
+                status: cancelled
+                hasStarted: false
+        '404':
+          $ref: '#/components/responses/PublicNotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+          description: |
+            `invalid_transition`: the appointment is not `pending` or
+            `confirmed`, including when it is already `cancelled`.
+            `appointment_started`: its start time has passed.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /health:
+    get:
+      tags: [operations]
+      operationId: getHealth
+      summary: Check the database round trip and report the running version.
+      security: []
+      responses:
+        '200':
+          description: The database round trip succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example:
+                status: ok
+                environment: dev
+                version: 1.0.0
+        '503':
+          description: The database round trip failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example:
+                status: unavailable
+                environment: dev
+                version: 1.0.0
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: |
+        The signed session token set by `POST /auth/login`, with the
+        attributes `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=43200`
+        (12 hours, spec section 6.1).
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: The resource id. A malformed id returns 404, not 422.
+      schema:
+        type: string
+        format: uuid
+    Token:
+      name: token
+      in: path
+      required: true
+      description: |
+        The URL-safe token from the confirmation link `/c/{token}`, at least
+        128 bits of randomness (spec section 6.4).
+      schema:
+        type: string
+
+  headers:
+    RetryAfter:
+      description: Seconds to wait before trying again.
+      schema:
+        type: integer
+        minimum: 1
+
+  responses:
+    Unauthorized:
+      description: |
+        `unauthenticated`: no session cookie, an expired or tampered
+        session, or the staff member has been deactivated since signing in.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: unauthenticated
+              message: Sign in to continue.
+    InvalidCredentials:
+      description: |
+        `invalid_credentials`: a wrong email, a wrong password, or an
+        inactive account, all with the same response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: invalid_credentials
+              message: Email or password is incorrect.
+    Forbidden:
+      description: |
+        `cross_site_request`: the request carries an `Origin` header that is
+        not the app's own origin (spec section 13, reject cross-site
+        requests).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: cross_site_request
+              message: Cross-site requests are not allowed.
+    NotFound:
+      description: |
+        `not_found`: no resource has this id. A malformed id also returns
+        404, not 422.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: not_found
+              message: Not found.
+    PublicNotFound:
+      description: |
+        `not_found`: identical for an unknown, malformed, or regenerated
+        token. It never says whether an appointment exists.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: not_found
+              message: This link is not valid.
+    Conflict:
+      description: |
+        The action is not allowed in the appointment's or account's current
+        state:
+
+        - `invalid_transition`: any transition not in spec section 7
+        - `appointment_started`: a client confirm or cancel, a staff confirm
+          of a `pending` appointment, or a link regeneration once the start
+          time has passed
+        - `appointment_not_started`: an outcome before the start time
+        - `email_taken`: a duplicate staff email, compared case-insensitively
+        - `cannot_deactivate_self`: `PATCH /staff/{id}` sets
+          `isActive: false` on the caller's own id
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: invalid_transition
+              message: This appointment can no longer be changed.
+    ValidationFailed:
+      description: |
+        `validation_error`: the request failed validation. `field` names the
+        request field or query parameter that failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: validation_error
+              message: Must be between 5 and 480.
+              field: durationMinutes
+    RateLimited:
+      description: |
+        `rate_limited`: too many requests. Sign-in is limited per email and
+        IP; public endpoints are limited per IP.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: rate_limited
+              message: Too many requests. Try again later.
+
+  examples:
+    StaffMemberAlex:
+      value:
+        id: 0b8f6a52-3c1e-4d7a-9f20-6e5b1c2d3a41
+        name: Alex
+        email: alex@demo.test
+        isActive: true
+        createdAt: '2026-11-01T08:00:00Z'
+    AppointmentPending:
+      value:
+        id: 2c8f5a17-4b9e-4d36-a1c0-9e7d3b5f8a24
+        client:
+          id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+          name: Maria Lopez
+          phone: +34 600 123 456
+        staffMember:
+          id: 0b8f6a52-3c1e-4d7a-9f20-6e5b1c2d3a41
+          name: Alex
+        service: Haircut
+        startsAt: '2026-11-11T09:30:00Z'
+        durationMinutes: 30
+        status: pending
+        confirmedBy: null
+        cancelledBy: null
+        statusChangedAt: '2026-11-10T09:15:00Z'
+        createdAt: '2026-11-10T09:15:00Z'
+        updatedAt: '2026-11-10T09:15:00Z'
+    AppointmentConfirmed:
+      value:
+        id: 2c8f5a17-4b9e-4d36-a1c0-9e7d3b5f8a24
+        client:
+          id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+          name: Maria Lopez
+          phone: +34 600 123 456
+        staffMember:
+          id: 0b8f6a52-3c1e-4d7a-9f20-6e5b1c2d3a41
+          name: Alex
+        service: Haircut
+        startsAt: '2026-11-11T09:30:00Z'
+        durationMinutes: 30
+        status: confirmed
+        confirmedBy: staff
+        cancelledBy: null
+        statusChangedAt: '2026-11-10T11:00:00Z'
+        createdAt: '2026-11-10T09:15:00Z'
+        updatedAt: '2026-11-10T11:00:00Z'
+    AppointmentCancelled:
+      value:
+        id: 2c8f5a17-4b9e-4d36-a1c0-9e7d3b5f8a24
+        client:
+          id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+          name: Maria Lopez
+          phone: +34 600 123 456
+        staffMember:
+          id: 0b8f6a52-3c1e-4d7a-9f20-6e5b1c2d3a41
+          name: Alex
+        service: Haircut
+        startsAt: '2026-11-11T09:30:00Z'
+        durationMinutes: 30
+        status: cancelled
+        confirmedBy: null
+        cancelledBy: staff
+        statusChangedAt: '2026-11-10T11:00:00Z'
+        createdAt: '2026-11-10T09:15:00Z'
+        updatedAt: '2026-11-10T11:00:00Z'
+    AppointmentAttended:
+      value:
+        id: 2c8f5a17-4b9e-4d36-a1c0-9e7d3b5f8a24
+        client:
+          id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+          name: Maria Lopez
+          phone: +34 600 123 456
+        staffMember:
+          id: 0b8f6a52-3c1e-4d7a-9f20-6e5b1c2d3a41
+          name: Alex
+        service: Haircut
+        startsAt: '2026-11-11T09:30:00Z'
+        durationMinutes: 30
+        status: attended
+        confirmedBy: client
+        cancelledBy: null
+        statusChangedAt: '2026-11-11T10:05:00Z'
+        createdAt: '2026-11-10T09:15:00Z'
+        updatedAt: '2026-11-11T10:05:00Z'
+    AppointmentWithLink:
+      value:
+        appointment:
+          id: 2c8f5a17-4b9e-4d36-a1c0-9e7d3b5f8a24
+          client:
+            id: 3f7b2c91-6d4e-4a58-8b1f-2e9c0a7d5b63
+            name: Maria Lopez
+            phone: +34 600 123 456
+          staffMember:
+            id: 0b8f6a52-3c1e-4d7a-9f20-6e5b1c2d3a41
+            name: Alex
+          service: Haircut
+          startsAt: '2026-11-11T09:30:00Z'
+          durationMinutes: 30
+          status: pending
+          confirmedBy: null
+          cancelledBy: null
+          statusChangedAt: '2026-11-10T09:15:00Z'
+          createdAt: '2026-11-10T09:15:00Z'
+          updatedAt: '2026-11-10T09:15:00Z'
+        confirmationLink: https://d111111abcdef8.cloudfront.net/c/3q2-7wFhR0mZx9kLpT4vNw
+        message: 'Hi Maria Lopez, this is Demo Studio. Please confirm your Haircut appointment on 11/11/2026 at 10:30: https://d111111abcdef8.cloudfront.net/c/3q2-7wFhR0mZx9kLpT4vNw'
+    PublicAppointmentPending:
+      value:
+        businessName: Demo Studio
+        timeZone: Europe/Madrid
+        service: Haircut
+        staffName: Alex
+        startsAt: '2026-11-11T09:30:00Z'
+        durationMinutes: 30
+        status: pending
+        hasStarted: false
+    BusinessSettings:
+      value:
+        businessName: Demo Studio
+        timeZone: Europe/Madrid
+        noReplyWindowHours: 24
+        noShowThreshold: 1
+        noShowLookbackDays: 180
+        lateCancellationHours: 12
+        defaultDurationMinutes: 30
+        messageTemplate: 'Hi {client}, this is {business}. Please confirm your {service} appointment on {date} at {time}: {link}'
+        updatedAt: '2026-11-10T08:00:00Z'
+
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthenticated
+                - invalid_credentials
+                - cross_site_request
+                - not_found
+                - invalid_transition
+                - appointment_started
+                - appointment_not_started
+                - email_taken
+                - cannot_deactivate_self
+                - validation_error
+                - rate_limited
+                - internal_error
+            message:
+              type: string
+              description: Human-readable explanation.
+            field:
+              type: string
+              description: |
+                Present only on 422. Names the request field that failed, for
+                example `durationMinutes`, `messageTemplate`, or the query
+                parameter `date`.
+
+    Timestamp:
+      type: string
+      format: date-time
+      description: UTC (`Z`) in responses.
+
+    Actor:
+      type: [string, 'null']
+      enum: [client, staff, null]
+
+    AppointmentStatus:
+      type: string
+      enum: [pending, confirmed, cancelled, attended, no_show]
+
+    StaffMember:
+      type: object
+      additionalProperties: false
+      required: [id, name, email, isActive, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        email:
+          type: string
+          format: email
+        isActive:
+          type: boolean
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    CreateStaffMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 8
+          maxLength: 72
+
+    UpdateStaffMemberRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        isActive:
+          type: boolean
+
+    Client:
+      type: object
+      required: [id, name, phone, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        phone:
+          type: [string, 'null']
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    CreateClientRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        phone:
+          type: [string, 'null']
+          maxLength: 30
+          pattern: '^[0-9+() -]+$'
+
+    ClientDetail:
+      allOf:
+        - $ref: '#/components/schemas/Client'
+        - type: object
+          required: [noShowCount, appointments]
+          properties:
+            noShowCount:
+              type: integer
+              minimum: 0
+              description: All-time count of the client's `no_show` appointments.
+            appointments:
+              type: array
+              description: The client's appointments, newest `startsAt` first.
+              items:
+                $ref: '#/components/schemas/Appointment'
+
+    Appointment:
+      type: object
+      required:
+        - id
+        - client
+        - staffMember
+        - service
+        - startsAt
+        - durationMinutes
+        - status
+        - confirmedBy
+        - cancelledBy
+        - statusChangedAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        client:
+          type: object
+          required: [id, name, phone]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            phone:
+              type: [string, 'null']
+        staffMember:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        service:
+          type: string
+          minLength: 1
+          maxLength: 80
+        startsAt:
+          $ref: '#/components/schemas/Timestamp'
+        durationMinutes:
+          type: integer
+          minimum: 5
+          maximum: 480
+        status:
+          $ref: '#/components/schemas/AppointmentStatus'
+        confirmedBy:
+          $ref: '#/components/schemas/Actor'
+        cancelledBy:
+          $ref: '#/components/schemas/Actor'
+        statusChangedAt:
+          $ref: '#/components/schemas/Timestamp'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    DayView:
+      type: object
+      required: [date, timeZone, appointments]
+      properties:
+        date:
+          type: string
+          format: date
+        timeZone:
+          type: string
+          description: The business time zone (IANA), for example `Europe/Madrid`.
+        appointments:
+          type: array
+          description: Sorted by `startsAt`.
+          items:
+            $ref: '#/components/schemas/DayAppointment'
+
+    DayAppointment:
+      allOf:
+        - $ref: '#/components/schemas/Appointment'
+        - type: object
+          required: [atRiskReasons, isLateCancellation]
+          properties:
+            atRiskReasons:
+              type: array
+              description: Empty unless the status is `pending` or `confirmed`.
+              items:
+                $ref: '#/components/schemas/AtRiskReason'
+            isLateCancellation:
+              type: boolean
+              description: |
+                `true` only for a `cancelled` appointment cancelled less than
+                `lateCancellationHours` before `startsAt`. Never `true` when
+                that setting is 0.
+
+    AtRiskReason:
+      oneOf:
+        - $ref: '#/components/schemas/NoReplyReason'
+        - $ref: '#/components/schemas/NoShowHistoryReason'
+      discriminator:
+        propertyName: code
+        mapping:
+          no_reply: '#/components/schemas/NoReplyReason'
+          no_show_history: '#/components/schemas/NoShowHistoryReason'
+
+    NoReplyReason:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum: [no_reply]
+
+    NoShowHistoryReason:
+      type: object
+      additionalProperties: false
+      required: [code, noShowCount]
+      properties:
+        code:
+          type: string
+          enum: [no_show_history]
+        noShowCount:
+          type: integer
+          minimum: 1
+          description: The count behind "Missed N before".
+
+    CreateAppointmentRequest:
+      type: object
+      additionalProperties: false
+      required: [clientId, staffMemberId, service, startsAt]
+      properties:
+        clientId:
+          type: string
+          format: uuid
+        staffMemberId:
+          type: string
+          format: uuid
+        service:
+          type: string
+          minLength: 1
+          maxLength: 80
+        startsAt:
+          $ref: '#/components/schemas/Timestamp'
+        durationMinutes:
+          type: integer
+          minimum: 5
+          maximum: 480
+          description: Defaults to `defaultDurationMinutes` from settings.
+
+    UpdateAppointmentRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        staffMemberId:
+          type: string
+          format: uuid
+        service:
+          type: string
+          minLength: 1
+          maxLength: 80
+        startsAt:
+          $ref: '#/components/schemas/Timestamp'
+        durationMinutes:
+          type: integer
+          minimum: 5
+          maximum: 480
+
+    OutcomeRequest:
+      type: object
+      additionalProperties: false
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [attended, no_show]
+
+    AppointmentWithLink:
+      type: object
+      required: [appointment, confirmationLink, message]
+      properties:
+        appointment:
+          $ref: '#/components/schemas/Appointment'
+        confirmationLink:
+          type: string
+          format: uri
+          description: '`{PUBLIC_BASE_URL}/c/{token}`. Returned only once.'
+        message:
+          type: string
+          description: The settings `messageTemplate` rendered with this link.
+
+    PublicAppointment:
+      type: object
+      additionalProperties: false
+      required:
+        - businessName
+        - timeZone
+        - service
+        - staffName
+        - startsAt
+        - durationMinutes
+        - status
+        - hasStarted
+      properties:
+        businessName:
+          type: string
+        timeZone:
+          type: string
+          description: The business time zone (IANA), for example `Europe/Madrid`.
+        service:
+          type: string
+        staffName:
+          type: string
+        startsAt:
+          $ref: '#/components/schemas/Timestamp'
+        durationMinutes:
+          type: integer
+        status:
+          $ref: '#/components/schemas/AppointmentStatus'
+        hasStarted:
+          type: boolean
+          description: Computed by the server, so a wrong phone clock does not matter.
+
+    BusinessSettings:
+      type: object
+      required:
+        - businessName
+        - timeZone
+        - noReplyWindowHours
+        - noShowThreshold
+        - noShowLookbackDays
+        - lateCancellationHours
+        - defaultDurationMinutes
+        - messageTemplate
+        - updatedAt
+      properties:
+        businessName:
+          type: string
+          default: My Business
+        timeZone:
+          type: string
+          default: UTC
+          description: An IANA zone, for example `Europe/Madrid`.
+        noReplyWindowHours:
+          type: integer
+          default: 24
+        noShowThreshold:
+          type: integer
+          default: 1
+        noShowLookbackDays:
+          type: integer
+          default: 180
+        lateCancellationHours:
+          type: integer
+          default: 12
+          description: 0 turns the late cancellation flag off.
+        defaultDurationMinutes:
+          type: integer
+          default: 30
+        messageTemplate:
+          type: string
+          default: 'Hi {client}, this is {business}. Please confirm your {service} appointment on {date} at {time}: {link}'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    UpdateSettingsRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        businessName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        timeZone:
+          type: string
+          description: Must be an IANA zone, checked by the server (422 otherwise).
+        noReplyWindowHours:
+          type: integer
+          minimum: 1
+          maximum: 168
+        noShowThreshold:
+          type: integer
+          minimum: 1
+          maximum: 10
+        noShowLookbackDays:
+          type: integer
+          minimum: 7
+          maximum: 730
+        lateCancellationHours:
+          type: integer
+          minimum: 0
+          maximum: 168
+          description: 0 turns the late cancellation flag off.
+        defaultDurationMinutes:
+          type: integer
+          minimum: 5
+          maximum: 480
+        messageTemplate:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: '\{link\}'
+          description: |
+            Must contain `{link}`, and may use only the placeholders
+            `{client}`, `{business}`, `{service}`, `{staff}`, `{date}`,
+            `{time}`, `{link}`. The placeholders are checked by the server
+            (422 otherwise).
+
+    Health:
+      type: object
+      required: [status, environment, version]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        environment:
+          type: string
+        version:
+          type: string
