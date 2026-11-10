@@ -147,6 +147,14 @@ An appointment is **at risk** when it is `pending` or `confirmed` and any of the
 
 A cancellation made less than `lateCancellationHours` before the start time is flagged **Late cancellation**, so staff know the slot may still be refillable.
 
+How the rules are measured:
+
+- At-risk reasons apply only before `startsAt`. Once an appointment has started it gets none and belongs to "Needs outcome".
+- The no-reply window is inclusive: an appointment exactly `noReplyWindowHours` from its start has no reply yet.
+- History counts the client's `no_show` appointments whose `startsAt` is within the last `noShowLookbackDays × 24 h` (inclusive), not counting the appointment itself. N in "Missed N before" is that windowed count, not the all-time count.
+- Late cancellation is measured from `statusChangedAt`, the time of the cancellation, and is strictly "less than" `lateCancellationHours`. A cancellation at or after the start is late. With `lateCancellationHours` 0 the flag is off.
+- Every window is elapsed time (hours × 3,600,000 ms, days × 86,400,000 ms), independent of the business time zone, so around a DST change a window can differ by one hour from the local wall clock.
+
 All thresholds come from business settings (6.7). The rules are pure functions that take the appointment, the client's history, the settings, and the current time, so they are unit-tested without a database.
 
 Changing a setting applies immediately to every upcoming appointment, because at-risk reasons are calculated when the dashboard loads, not stored.
@@ -178,6 +186,10 @@ Hi {client}, this is {business}. Please confirm your {service} appointment on {d
 ```
 
 Placeholders: `{client}`, `{business}`, `{service}`, `{staff}`, `{date}`, `{time}`, `{link}`. Unknown placeholders are rejected when saving, so a typo can't reach a client.
+
+- A placeholder is a `{`, then any characters other than `{` and `}`, then `}`. Placeholders are case-sensitive, so `{Link}` and `{ link }` are unknown. A lone `{` or `}` is plain text.
+- `{date}` is the start date as `DD/MM/YYYY` and `{time}` the start time as 24-hour `HH:mm`, both in the business time zone.
+- The 500 limit counts Unicode characters (code points), as JSON Schema `maxLength` does, and applies to the template only, not to the rendered message.
 
 - Settings are validated on save, and invalid values return `422` with the field that failed.
 - Changing `timeZone` does not move appointments. Times are stored in UTC, so the same moment is shown in the new zone.

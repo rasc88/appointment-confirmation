@@ -67,6 +67,29 @@ appointment to another client, staff cancel it and create a new one.
 Why: the confirmation link has already gone to the original client.
 Switching the client would show that person someone else's appointment.
 
+### 19. At-risk reasons apply only before the start time, and every rule window is elapsed time
+
+A `pending` or `confirmed` appointment whose start time has passed gets
+no at-risk reasons. The no-reply window, the no-show lookback, and the
+late-cancellation window are measured in elapsed hours and days, not
+local wall-clock time.
+
+Why: once an appointment has started it can only be marked attended or
+no-show, the link no longer accepts replies, and the dashboard shows it
+under "Needs outcome"; keeping "No reply yet" on it would put it in two
+groups. "Within 24 hours" means 24 real hours whatever the DST change,
+which needs no time-zone maths and no library. Cost accepted: around a
+DST change a window is one hour off from the local wall clock.
+
+### 20. Message dates are `DD/MM/YYYY` and 24-hour time in the business time zone
+
+`{date}` renders as `DD/MM/YYYY` and `{time}` as `HH:mm`, both in the
+business time zone, with the built-in `Intl.DateTimeFormat`.
+
+Why: numeric, so it reads the same in any message language, and it
+matches the `openapi.yaml` example and the Madrid demo business. A
+per-business date format is not in the MVP.
+
 ## Technical
 
 ### 7. Express 5 + TypeScript + Prisma + PostgreSQL everywhere
