@@ -46,6 +46,8 @@ The following are intentionally excluded:
 - Calendar sync (Google Calendar, Outlook) or overlap detection between appointments.
 - Real-time push updates. The dashboard refreshes by polling.
 - Native mobile apps. The web UI is responsive instead.
+- High availability. One instance hosts both environments, and an instance failure takes both down until it is replaced.
+- Languages other than English in the UI. Each business can still write the client message in its own language (6.7).
 
 ---
 
@@ -233,9 +235,10 @@ Placeholders: `{client}`, `{business}`, `{service}`, `{staff}`, `{date}`, `{time
 | API contract | `openapi.yaml`, written before the backend |
 | Tests | Vitest + Supertest (backend), Vitest + React Testing Library (frontend), Playwright (end to end) |
 | Containers | One Dockerfile (frontend built into the backend image), Docker Compose with Postgres |
-| Hosting | AWS EC2 per environment (dev, production), Docker Compose, Caddy for HTTPS, defined in CloudFormation |
-| CI/CD | GitHub Actions: tests on every PR, auto-deploy to dev on `main`, manual promotion of the same image to production |
-| Telemetry | OpenTelemetry (traces, metrics, logs) exported over OTLP to Grafana Cloud |
+| Hosting | One AWS EC2 `t4g.small` running dev and production as separate Docker Compose projects, each behind its own CloudFront distribution for HTTPS, defined in CloudFormation (10.4) |
+| Image registry | GitHub Container Registry, public package |
+| CI/CD | GitHub Actions: tests on every PR, auto-deploy to dev on `main`, manual promotion of the same image to production, deploys run over AWS Systems Manager |
+| Telemetry | OpenTelemetry (traces, metrics, logs) exported over OTLP straight from the app to Grafana Cloud's free tier |
 
 ### 10.2 Runtime Layout
 A single container serves the API under `/v1` and the built frontend as static files, so the browser always talks to the same origin. Locally, `docker compose up` starts the app and Postgres with one command, applies Prisma migrations, and seeds demo data.
@@ -250,6 +253,41 @@ A single container serves the API under `/v1` and the built frontend as static f
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` | Telemetry export; off when unset |
 
 Environment variables hold only deployment and secret values. Everything about how the business works lives in business settings (6.7), so it can change without a redeploy.
+
+### 10.4 Deployment Layout and Cost
+The deployment is sized for the lowest cost that still gives separate dev and production environments.
+
+```mermaid
+flowchart LR
+    U[Browser] -->|HTTPS| CFD[CloudFront dev<br/>*.cloudfront.net]
+    U -->|HTTPS| CFP[CloudFront prod<br/>*.cloudfront.net]
+    subgraph EC2[EC2 t4g.small]
+        D[dev: app :8081 + Postgres]
+        P[prod: app :8082 + Postgres]
+    end
+    CFD -->|HTTP| D
+    CFP -->|HTTP| P
+    D & P -->|OTLP| G[Grafana Cloud free tier]
+```
+
+- **One instance, two environments.** Dev and production are separate Docker Compose projects on the same instance, each with its own app container, Postgres container, data volume, and env file. They share only the host.
+- **HTTPS without a domain.** Each environment gets its own CloudFront distribution with its default `*.cloudfront.net` address and certificate. CloudFront terminates HTTPS and forwards to the app's port over HTTP. The security group opens ports 8081 and 8082 only to CloudFront's origin-facing IP list, so the instance doesn't answer the public internet directly. No reverse proxy runs on the instance.
+- **No caching.** The distributions forward every method, header, cookie, and query string, because every response is dynamic.
+- **Memory limits.** Each container has a memory limit, so a misbehaving dev deploy cannot starve production.
+- **No collector.** The app exports telemetry directly to Grafana Cloud, which saves running a collector on a small instance.
+
+Expected monthly cost:
+
+| Item | Cost |
+|---|---|
+| EC2 `t4g.small` | $0 under AWS's t4g.small free trial (750 hours/month, one instance), which runs until December 31, 2026; about $12/month after |
+| Public IPv4 address | About $3.65/month, covered by AWS Free Tier credits on new accounts |
+| 20 GiB gp3 EBS volume | About $1.60/month |
+| CloudFront (2 distributions) | $0 within the always-free allowance |
+| GitHub Container Registry, GitHub Actions | $0 for a public repository |
+| Grafana Cloud | $0 on the free tier |
+
+Once peer review is over, deleting the CloudFormation stack stops all AWS charges.
 
 ---
 
@@ -358,7 +396,7 @@ Unknown or invalidated tokens return `404`, never a hint about whether the appoi
 
 - Client names, phone numbers, and confirmation tokens never appear in logs, traces, or metrics.
 - Request URLs for `/c/{token}` and `/v1/public/appointments/{token}` are recorded only by their route template, never the raw path.
-- Public endpoints are rate-limited per IP (for example 30 requests per minute) to slow token guessing.
+- Public endpoints are rate-limited per IP (for example 30 requests per minute) to slow token guessing. Behind CloudFront, the client IP comes from the `X-Forwarded-For` header CloudFront adds.
 - Sign-in is rate-limited per email and IP.
 - All state-changing staff endpoints require the session cookie and reject cross-site requests.
 - Secrets come only from environment variables, never from the repository.
@@ -369,13 +407,13 @@ Unknown or invalidated tokens return `404`, never a hint about whether the appoi
 
 - Client page loads and confirm action: p95 under 500 ms on the deployed environment.
 - Dashboard for a day with 100 appointments: p95 under 800 ms.
-- Expected scale: up to 20 staff and 300 appointments per day. One instance per environment is enough.
+- Expected scale: up to 20 staff and 300 appointments per day. One small instance shared by both environments is enough.
 
 ---
 
 ## 15. Observability and Alerting
 
-The key user journey is **client opens link → confirms or cancels**. It is instrumented with traces, metrics, and structured JSON logs that share the trace ID.
+The key user journey is **client opens link → confirms or cancels**. It is instrumented with traces, metrics, and structured JSON logs that share the trace ID. All three are sent to Grafana Cloud's free tier, where they are stored, viewed, and alerted on. Metric labels are limited to the ones below, so the number of series stays well within the free tier's limits.
 
 ### 15.1 Application Metrics
 | Metric | Type | Labels |
@@ -426,14 +464,16 @@ When the alert fires, a coding agent receives the alert, investigates with logs 
 3. **Backend:** Express + Prisma implementation of the contract, with unit and integration tests.
 4. **Connect:** frontend on the real API, end-to-end test of the confirm journey.
 5. **Containerize:** Dockerfile and Docker Compose with Postgres.
-6. **Deploy:** CloudFormation stacks for dev and production on AWS, CI/CD with manual promotion.
+6. **Deploy:** one CloudFormation stack (EC2 instance, two CloudFront distributions) on AWS, CI/CD with manual promotion to production.
 7. **Operate:** OpenTelemetry, Grafana dashboard, alert, and on-call agent.
 
 ---
 
-## 19. Open Questions
+## 19. Decisions
 
-1. **Domain for HTTPS:** do we have a domain for dev and production, or do we use CloudFront's default domain?
-2. **Instance size:** `t4g.small` (about $19/month per environment) or `t4g.micro` to halve the cost?
-3. **Observability backend:** Grafana Cloud free tier (as in `next-in-dining`), or a self-hosted stack on AWS?
-4. **Language:** is the UI in English only, or also another language? Documentation stays in English either way.
+| Question | Decision |
+|---|---|
+| Domain for HTTPS | CloudFront's default `*.cloudfront.net` domain, one per environment |
+| Instance size | One `t4g.small` shared by dev and production, free under AWS's trial until December 31, 2026 |
+| Observability backend | Grafana Cloud free tier |
+| UI language | English only |
