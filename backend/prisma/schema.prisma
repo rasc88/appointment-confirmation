@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AppointmentStatus {
+  pending
+  confirmed
+  cancelled
+  attended
+  no_show
+}
+
+enum Actor {
+  client
+  staff
+}
+
+model StaffMember {
+  id              String             @id @default(uuid())
+  name            String
+  email           String             @unique
+  passwordHash    String
+  isActive        Boolean            @default(true)
+  createdAt       DateTime           @default(now())
+  appointments    Appointment[]
+  updatedSettings BusinessSettings[]
+}
+
+model Client {
+  id           String        @id @default(uuid())
+  name         String
+  phone        String?
+  createdAt    DateTime      @default(now())
+  appointments Appointment[]
+}
+
+model Appointment {
+  id              String            @id @default(uuid())
+  clientId        String
+  client          Client            @relation(fields: [clientId], references: [id])
+  staffMemberId   String
+  staffMember     StaffMember       @relation(fields: [staffMemberId], references: [id])
+  service         String
+  startsAt        DateTime
+  durationMinutes Int
+  status          AppointmentStatus @default(pending)
+  confirmedBy     Actor?
+  cancelledBy     Actor?
+  statusChangedAt DateTime          @default(now())
+  tokenHash       String            @unique
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([startsAt])
+  @@index([clientId, status])
+}
+
+model BusinessSettings {
+  id                     Int          @id @default(1)
+  businessName           String       @default("My Business")
+  timeZone               String       @default("UTC")
+  noReplyWindowHours     Int          @default(24)
+  noShowThreshold        Int          @default(1)
+  noShowLookbackDays     Int          @default(180)
+  lateCancellationHours  Int          @default(12)
+  defaultDurationMinutes Int          @default(30)
+  messageTemplate        String       @default("Hi {client}, this is {business}. Please confirm your {service} appointment on {date} at {time}: {link}")
+  updatedAt              DateTime     @updatedAt
+  updatedByStaffId       String?
+  updatedByStaff         StaffMember? @relation(fields: [updatedByStaffId], references: [id])
+}

@@ -30,8 +30,10 @@ adds one, it does not exist yet - check `package.json` before relying on it.
 Use Node 24 (`nvm use` reads `.nvmrc`). `.env.example` lists the local
 settings: `DATABASE_URL` points at the Postgres that `docker compose up -d db`
 starts, and `PORT` is the backend port. Copy it to `.env` (ignored by git).
-Nothing reads `.env` yet, so set `PORT` in the shell to change it, for
-example `PORT=3001 npm run dev`.
+`npm run dev`, `npm run db:migrate`, and `npm run db:seed` read `.env`; a
+value set in the shell wins, for example `PORT=3001 npm run dev`, and a
+missing `.env` is not an error. Tests ignore both and always use
+`appointments_test`.
 
 - `npm install` - install every workspace
 - `docker compose up -d db` - start only Postgres 17 on `localhost:5432`
@@ -39,11 +41,19 @@ example `PORT=3001 npm run dev`.
   `appointments_test` databases, for local development
 - `npm run dev` - backend on `PORT` (default 3000) and Vite on
   `http://localhost:5173`, with reload; Vite proxies `/v1` to the backend
-  on the same `PORT`. Does not need Postgres
-- `npm run db:migrate` - apply Prisma migrations (`prisma migrate dev`)
-- `npm run db:seed` - reset and fill the database with the demo data from
-  `docs/spec.md` section 17
-- `npm test` - Vitest once (no watch) in every workspace except e2e
+  on the same `PORT`. Needs `docker compose up -d db` and
+  `npm run db:migrate` first; the backend creates the settings row on
+  start and exits if the database is unreachable or not migrated
+- `npm run db:migrate` - apply Prisma migrations (`prisma migrate dev`).
+  After changing `backend/prisma/schema.prisma`, create its migration with
+  `npm run db:migrate -- --name <what-changed>`
+- `npm run db:seed` - wipe every row in the database `DATABASE_URL` points
+  at and fill it with the demo data from `docs/spec.md` section 17. Demo
+  logins: `alex@demo.test` and `sam@demo.test`, password `demo1234`.
+  Refuses to run when `APP_ENV=production`
+- `npm test` - Vitest once (no watch) in every workspace except e2e. Needs
+  `docker compose up -d db`; backend tests migrate and use
+  `appointments_test`, one file at a time
 - `npm run lint` - ESLint with typescript-eslint, every workspace, from the
   one root `eslint.config.js`, then Redocly on `openapi.yaml`
   (`npm run lint:openapi` runs only Redocly; rules in `redocly.yaml`)

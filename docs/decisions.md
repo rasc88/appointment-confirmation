@@ -130,6 +130,22 @@ generators support it. Running Redocly inside `npm run lint` means the
 "lint before commit" rule and CI cover the contract with no new step.
 Redocly was chosen over Spectral as the simpler setup.
 
+### 17. Sessions are stateless signed cookies, with no session table
+
+The auth check loads the staff member on every request and rejects
+inactive ones, which is how deactivation ends sessions (spec 6.1).
+
+Why: no table to write on sign-in or clean up later, and deactivation
+still takes effect on the next request. Cost accepted: sign-out clears
+the cookie but cannot revoke a copy of the token before its 12 hours run
+out.
+
+### 18. Passwords are hashed with `bcryptjs`, cost 12
+
+Why: pure JavaScript, so no native build on the arm64 instance or in
+Docker. The 72-byte bcrypt limit is why `openapi.yaml` caps passwords at
+72 characters.
+
 ## Process
 
 ### 13. One agent at a time
