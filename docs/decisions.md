@@ -59,6 +59,14 @@ the appointment back to `pending`.
 Why: reopening invites confusion about which reply counts. A client who
 confirmed 10:00 did not confirm 15:00.
 
+### 16. An appointment's client is fixed once created
+
+`PATCH /appointments/{id}` cannot change the client. To move an
+appointment to another client, staff cancel it and create a new one.
+
+Why: the confirmation link has already gone to the original client.
+Switching the client would show that person someone else's appointment.
+
 ## Technical
 
 ### 7. Express 5 + TypeScript + Prisma + PostgreSQL everywhere
@@ -109,6 +117,18 @@ The app exports traces, metrics, and logs over OTLP with no collector.
 
 Why: free, already proven in the owner's previous project, and a
 collector would use memory the small instance needs.
+
+### 15. The OpenAPI contract is 3.1 and linted by Redocly in `npm run lint`
+
+`openapi.yaml` declares OpenAPI 3.1.0 and is checked by `@redocly/cli`
+with the `recommended` ruleset (`redocly.yaml`), run by `npm run lint`
+after ESLint.
+
+Why: 3.1 schemas are JSON Schema 2020-12, so nullable fields and `oneOf`
+with a discriminator work cleanly, and Redocly and the common TypeScript
+generators support it. Running Redocly inside `npm run lint` means the
+"lint before commit" rule and CI cover the contract with no new step.
+Redocly was chosen over Spectral as the simpler setup.
 
 ## Process
 
