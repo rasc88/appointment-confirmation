@@ -23,7 +23,7 @@ After each appointment, staff mark it as attended or no-show. That history feeds
 The MVP must:
 
 1. Allow staff to sign in with email and password.
-2. Allow staff to create, edit, and cancel appointments for any staff member.
+2. Allow staff to create, edit, confirm, and cancel appointments for any staff member, for example when a client replies by phone instead of using the link.
 3. Generate a unique, unguessable confirmation link per appointment that staff can copy and send themselves.
 4. Allow clients to confirm or cancel through that link without an account.
 5. Show a dashboard for a chosen day, grouped by status, with at-risk appointments highlighted.
@@ -55,6 +55,7 @@ An authenticated user of the business who can:
 - Sign in and sign out with email and password.
 - Add other staff accounts.
 - Create, edit, and cancel appointments for any staff member.
+- Confirm or cancel an appointment on the client's behalf, when the client replies by phone, message, or in person.
 - Copy an appointment's confirmation link or ready-to-send message.
 - Regenerate a confirmation link, which invalidates the previous one.
 - View the dashboard for any day, optionally filtered by staff member.
@@ -96,7 +97,10 @@ The client opens `/c/{token}`. If the appointment is `pending`, they see **Confi
 ### 5.3 Daily Dashboard
 Staff open the dashboard, which defaults to today in the business time zone. Appointments are grouped as **At risk**, **Pending**, **Confirmed**, **Cancelled**, and **Completed** (attended or no-show), each sorted by start time. A date picker and a staff filter narrow the view. The page polls for updates every 30 seconds.
 
-### 5.4 Closing the Day
+### 5.4 Staff Confirms or Cancels for the Client
+When a client replies outside the link (a phone call, a chat message, or at the front desk), staff open the appointment on the dashboard and tap **Confirm** or **Cancel**. Cancelling asks for a second tap, as on the client page. The appointment records that staff made the change, so the dashboard can show "Confirmed by staff" or "Confirmed by client".
+
+### 5.5 Closing the Day
 For each appointment whose start time has passed, staff mark **Attended** or **No-show**. Unmarked past appointments stay visible in a "Needs outcome" group until marked.
 
 ---
@@ -117,7 +121,8 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 ### 6.3 Appointments
 - Fields: client, staff member, service name, start time, duration in minutes.
 - Staff can edit any field while the appointment is `pending` or `confirmed`. Editing the start time resets status to `pending`, because the client confirmed a different time.
-- Staff can cancel an appointment. The cancellation records that it was cancelled by staff.
+- Staff can confirm a `pending` appointment before its start time. The confirmation records that it was confirmed by staff.
+- Staff can cancel a `pending` or `confirmed` appointment. The cancellation records that it was cancelled by staff.
 
 ### 6.4 Confirmation Link
 - The link is `/c/{token}`, where the token is at least 128 bits of cryptographically random data, URL-safe encoded.
@@ -133,7 +138,7 @@ An appointment is **at risk** when it is `pending` or `confirmed` and any of the
 | No reply | Status is `pending` and the start time is within 24 hours | "No reply yet" |
 | History | The client has 1 or more `no_show` appointments in the last 180 days | "Missed N before" |
 
-A cancellation made by the client less than 12 hours before the start time is flagged **Late cancellation**, so staff know the slot may still be refillable.
+A cancellation made less than 12 hours before the start time is flagged **Late cancellation**, so staff know the slot may still be refillable.
 
 All thresholds are constants in one module so they can be tuned later.
 
@@ -150,7 +155,7 @@ All thresholds are constants in one module so they can be tuned later.
 | From | Action | Actor | To |
 |---|---|---|---|
 | — | Create | Staff | `pending` |
-| `pending` | Confirm | Client | `confirmed` |
+| `pending` | Confirm (before start) | Client or Staff | `confirmed` |
 | `pending`, `confirmed` | Cancel | Client or Staff | `cancelled` |
 | `confirmed` | Change start time | Staff | `pending` |
 | `pending`, `confirmed` | Mark attended (after start) | Staff | `attended` |
@@ -179,7 +184,8 @@ All thresholds are constants in one module so they can be tuned later.
 | Confirm / cancel via link | — | ✅ (before start) | — |
 | Sign in | ✅ | ✅ | ✅ |
 | View dashboard, clients, history | — | — | ✅ |
-| Create / edit / cancel appointments | — | — | ✅ |
+| Create / edit appointments | — | — | ✅ |
+| Confirm / cancel from the dashboard | — | — | ✅ (confirm before start) |
 | Mark attended / no-show | — | — | ✅ |
 | Add or deactivate staff | — | — | ✅ |
 
@@ -250,6 +256,7 @@ All timestamps are stored in UTC.
 | startsAt | timestamp | |
 | durationMinutes | integer | 5–480 |
 | status | enum | `pending`, `confirmed`, `cancelled`, `attended`, `no_show` |
+| confirmedBy | enum, nullable | `client`, `staff` |
 | cancelledBy | enum, nullable | `client`, `staff` |
 | statusChangedAt | timestamp | |
 | tokenHash | text | unique, SHA-256 of the confirmation token |
@@ -276,6 +283,7 @@ All endpoints are under `/v1` and defined in `openapi.yaml`. Errors use a single
 | GET | `/appointments?date=YYYY-MM-DD&staffId=` | Day view with at-risk reasons |
 | POST | `/appointments` | Create; returns the confirmation link once |
 | PATCH | `/appointments/{id}` | Edit fields |
+| POST | `/appointments/{id}/confirm` | Confirm by staff |
 | POST | `/appointments/{id}/cancel` | Cancel by staff |
 | POST | `/appointments/{id}/outcome` | `{ "outcome": "attended" \| "no_show" }` |
 | POST | `/appointments/{id}/undo-outcome` | Revert an outcome |
@@ -326,8 +334,8 @@ The key user journey is **client opens link → confirms or cancels**. It is ins
 | Metric | Type | Labels |
 |---|---|---|
 | `appointments_created_total` | counter | `environment`, `version` |
-| `appointment_responses_total` | counter | `action` (`confirm`, `cancel`), `environment`, `version` |
-| `appointment_response_failures_total` | counter | `action`, `environment`, `version` |
+| `appointment_responses_total` | counter | `action` (`confirm`, `cancel`), `actor` (`client`, `staff`), `environment`, `version` |
+| `appointment_response_failures_total` | counter | `action`, `actor`, `environment`, `version` |
 | `appointment_outcomes_total` | counter | `outcome` (`attended`, `no_show`), `environment`, `version` |
 
 ### 15.2 Alert
@@ -347,9 +355,10 @@ When the alert fires, a coding agent receives the alert, investigates with logs 
 5. A `pending` appointment starting within 24 hours appears under **At risk** with "No reply yet".
 6. A client with a previous no-show is flagged on their next appointment.
 7. After the start time, the link no longer accepts confirm or cancel.
-8. Regenerating a link makes the old link return 404.
-9. Unit, integration, and end-to-end tests run with one command each and pass in CI.
-10. No client name, phone number, or token appears in exported logs or traces.
+8. Staff can confirm or cancel an appointment from the dashboard, and it shows whether the client or staff made the change.
+9. Regenerating a link makes the old link return 404.
+10. Unit, integration, and end-to-end tests run with one command each and pass in CI.
+11. No client name, phone number, or token appears in exported logs or traces.
 
 ---
 
