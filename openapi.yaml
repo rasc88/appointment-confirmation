@@ -1389,7 +1389,7 @@ components:
           properties:
             atRiskReasons:
               type: array
-              description: Empty unless the status is `pending` or `confirmed`.
+              description: Empty unless the status is `pending` or `confirmed` and `startsAt` is after the current time.
               items:
                 $ref: '#/components/schemas/AtRiskReason'
             isLateCancellation:
@@ -1429,7 +1429,9 @@ components:
         noShowCount:
           type: integer
           minimum: 1
-          description: The count behind "Missed N before".
+          description: |
+            The count behind "Missed N before": the client's `no_show`
+            appointments in the last `noShowLookbackDays`.
 
     CreateAppointmentRequest:
       type: object
