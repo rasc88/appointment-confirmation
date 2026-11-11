@@ -1,0 +1,99 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  color: #1f2328;
+  background: #f6f7f9;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+a {
+  color: #0b57d0;
+}
+
+button {
+  font: inherit;
+  padding: 8px 16px;
+  border: 1px solid #0b57d0;
+  border-radius: 6px;
+  background: #0b57d0;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+input {
+  font: inherit;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #9aa0a6;
+  border-radius: 6px;
+}
+
+input[aria-invalid='true'] {
+  border-color: #b3261e;
+}
+
+.staff-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 16px;
+  background: #fff;
+  border-bottom: 1px solid #dadce0;
+}
+
+.staff-header nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  flex: 1;
+}
+
+.staff-name {
+  font-weight: 600;
+}
+
+.sign-in {
+  max-width: 400px;
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.field-error,
+.form-error {
+  margin: 4px 0 0;
+  color: #b3261e;
+}
+
+.form-error {
+  margin-bottom: 16px;
+}
+
+.loading {
+  padding: 16px;
+}
