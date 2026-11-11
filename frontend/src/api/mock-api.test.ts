@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from './api-error';
 import { buildDemoData, type DemoData } from './demo-data';
 import type { ApiService } from './api-service';
-import type { CreateAppointmentRequest, DayAppointment, UpdateSettingsRequest } from './types';
+import type { CreateAppointmentRequest, DayAppointment, UpdateAppointmentRequest, UpdateSettingsRequest } from './types';
 import { createMockApi } from './mock-api';
 
 vi.mock('./demo-data', { spy: true });
@@ -69,10 +69,6 @@ describe('createMockApi', () => {
     await first.login({ email: 'alex@demo.test', password: 'demo1234' });
 
     await expect(second.getCurrentStaffMember()).rejects.toMatchObject({ code: 'unauthenticated' });
-  });
-
-  it('rejects operations later issues implement', async () => {
-    await expect(createMockApi().updateAppointment('unknown', {})).rejects.toThrow('Not implemented in mock: updateAppointment');
   });
 });
 
@@ -1482,5 +1478,306 @@ describe('createMockApi staff appointment actions', () => {
 
     await api.undoAppointmentOutcome(idOf('demo-9'));
     await expect(api.getClient(benId)).resolves.toMatchObject({ noShowCount });
+  });
+});
+
+const unknownId = '00000000-0000-4000-8000-000000000000';
+const appointmentKeys = [
+  'cancelledBy',
+  'client',
+  'confirmedBy',
+  'createdAt',
+  'durationMinutes',
+  'id',
+  'service',
+  'staffMember',
+  'startsAt',
+  'status',
+  'statusChangedAt',
+  'updatedAt',
+];
+
+async function signedInStoreApi(options: { now?: Date } = { now }) {
+  const { api, byToken, store } = createMockApiWithStore(options);
+  await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+  const idOf = (token: string) => byToken(token).id;
+  const staffId = (name: string) => store.staff.find((staffMember) => staffMember.name === name)!.id;
+  return { api, byToken, idOf, staffId, store };
+}
+
+describe('createMockApi updateAppointment', () => {
+  it('rejects with 401 before any other check when nobody is signed in', async () => {
+    const { api } = createMockApiWithStore();
+
+    await expect(api.updateAppointment('unknown', {})).rejects.toMatchObject({ status: 401, code: 'unauthenticated' });
+  });
+
+  it('rejects an unknown id with 404 before checking the body', async () => {
+    const { api } = await signedInStoreApi();
+
+    for (const id of ['unknown', '', '%00', unknownId]) {
+      const error = await api.updateAppointment(id, { clientId: 'x' } as never).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status: 404, code: 'not_found', message: 'Not found.' });
+    }
+  });
+
+  it.each(['demo-5', 'demo-7', 'demo-8'])('rejects %s with 409 whatever the body, and writes nothing', async (token) => {
+    const { api, byToken, idOf } = await signedInStoreApi();
+    const before = structuredClone(byToken(token));
+
+    for (const change of [{ service: 'Colour' }, {}, { service: '' }, { clientId: unknownId }]) {
+      const error = await api.updateAppointment(idOf(token), change as never).catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ status: 409, code: 'invalid_transition', message: 'This appointment can no longer be changed.' });
+    }
+    expect(byToken(token)).toEqual(before);
+  });
+
+  it.each([
+    [{}, 'Change at least one field.', undefined],
+    [{ staffMemberId: 'abc', service: '' }, 'Choose an active staff member.', 'staffMemberId'],
+    [{ service: '', startsAt: 'soon' }, 'Enter the service, up to 80 characters.', 'service'],
+    [{ startsAt: '2026-02-30T10:00:00Z', durationMinutes: 4 }, 'Enter a valid date and time.', 'startsAt'],
+    [{ durationMinutes: 481 }, 'Enter a duration from 5 to 480 minutes.', 'durationMinutes'],
+    [{ durationMinutes: 4, extra: 1 }, 'Enter a duration from 5 to 480 minutes.', 'durationMinutes'],
+    [{ clientId: unknownId }, 'Unknown field.', 'clientId'],
+    [{ extra: 1, staffMemberId: unknownId }, 'Unknown field.', 'extra'],
+    [{ staffMemberId: unknownId, startsAt: '2026-11-09T10:00:00Z' }, 'Choose an active staff member.', 'staffMemberId'],
+    [{ startsAt: '2026-11-10T10:07:00Z' }, 'Choose a time in the future.', 'startsAt'],
+  ])('rejects %j with only the first failure, as the backend', async (change, message, field) => {
+    const { api, byToken, idOf } = await signedInStoreApi();
+    const before = structuredClone(byToken('demo-1'));
+
+    const error = await api.updateAppointment(idOf('demo-1'), change as UpdateAppointmentRequest).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toEqual(expect.objectContaining({ status: 422, code: 'validation_error', message, field }));
+    expect(byToken('demo-1')).toEqual(before);
+  });
+
+  it.each([
+    ['service', { service: 'x'.repeat(81) }],
+    ['service', { service: 7 }],
+    ['startsAt', { startsAt: '2026-11-11T09:30Z' }],
+    ['startsAt', { startsAt: '2026-11-11T09:30:00' }],
+    ['startsAt', { startsAt: '2026-11-11 09:30:00Z' }],
+    ['startsAt', { startsAt: '2026-11-11T09:30:00z' }],
+    ['startsAt', { startsAt: '2026-11-11T24:00:00Z' }],
+    ['startsAt', { startsAt: '2027-02-29T09:30:00Z' }],
+    ['durationMinutes', { durationMinutes: 30.5 }],
+    ['durationMinutes', { durationMinutes: '30' }],
+    ['staffMemberId', { staffMemberId: 7 }],
+  ])('rejects a malformed %s', async (field, change) => {
+    const { api, idOf } = await signedInStoreApi();
+
+    await expect(api.updateAppointment(idOf('demo-1'), change as never)).rejects.toMatchObject(validationField(field));
+  });
+
+  it('counts code points for the service and accepts the backend datetime forms', async () => {
+    const { api, idOf } = await signedInStoreApi();
+
+    await expect(api.updateAppointment(idOf('demo-1'), { service: '😀'.repeat(80) })).resolves.toMatchObject({
+      service: '😀'.repeat(80),
+    });
+    await expect(api.updateAppointment(idOf('demo-1'), { startsAt: '2028-02-29T09:30:00.123456+05:30' })).resolves.toMatchObject({
+      startsAt: '2028-02-29T04:00:00.123Z',
+    });
+  });
+
+  it('treats a key whose value is undefined as absent', async () => {
+    const { api, idOf } = await signedInStoreApi();
+
+    await expect(api.updateAppointment(idOf('demo-1'), { service: undefined })).rejects.toMatchObject({
+      status: 422,
+      message: 'Change at least one field.',
+      field: undefined,
+    });
+    await expect(
+      api.updateAppointment(idOf('demo-1'), { service: 'Colour', clientId: undefined } as UpdateAppointmentRequest),
+    ).resolves.toMatchObject({ service: 'Colour' });
+  });
+
+  it('rejects an inactive staff member', async () => {
+    const { api, byToken, idOf, staffId } = await signedInStoreApi();
+    await api.updateStaffMember(staffId('Sam'), { isActive: false });
+    const before = structuredClone(byToken('demo-1'));
+
+    const error = await api.updateAppointment(idOf('demo-1'), { staffMemberId: staffId('Sam') }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject(validationMessage('staffMemberId', 'Choose an active staff member.'));
+    expect(byToken('demo-1')).toEqual(before);
+  });
+
+  it('treats the same instant in another offset as no change, even after the start', async () => {
+    const { api, byToken, idOf } = await signedInStoreApi();
+    const before = structuredClone(byToken('demo-3'));
+    byToken('demo-3').startsAt = '2026-11-10T09:00:00.000Z';
+
+    const updated = await api.updateAppointment(idOf('demo-3'), { startsAt: '2026-11-10T10:00:00+01:00', service: 'Haircut' });
+
+    expect(updated).toMatchObject({
+      service: 'Haircut',
+      startsAt: '2026-11-10T09:00:00.000Z',
+      status: 'confirmed',
+      confirmedBy: 'client',
+      statusChangedAt: before.statusChangedAt,
+      updatedAt: now.toISOString(),
+    });
+  });
+
+  it('resets a confirmed appointment to pending when the start changes, moving statusChangedAt', async () => {
+    const { api, byToken, idOf } = await signedInStoreApi();
+
+    const updated = await api.updateAppointment(idOf('demo-3'), { startsAt: '2026-11-12T16:00:00+01:00' });
+
+    expect(updated).toMatchObject({
+      startsAt: '2026-11-12T15:00:00.000Z',
+      status: 'pending',
+      confirmedBy: null,
+      statusChangedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+    expect(byToken('demo-3')).toMatchObject({ startsAt: '2026-11-12T15:00:00.000Z', status: 'pending', confirmedBy: null });
+  });
+
+  it('keeps statusChangedAt when a pending appointment changes its start', async () => {
+    const { api, byToken, idOf } = await signedInStoreApi();
+    const { statusChangedAt } = byToken('demo-1');
+
+    await expect(api.updateAppointment(idOf('demo-1'), { startsAt: '2026-11-12T15:00:00Z' })).resolves.toMatchObject({
+      status: 'pending',
+      statusChangedAt,
+    });
+  });
+
+  it('keeps confirmed when only the service, staff member or duration changes, and returns a copy of the Appointment', async () => {
+    const { api, byToken, idOf, staffId } = await signedInStoreApi();
+    const before = structuredClone(byToken('demo-3'));
+
+    const updated = await api.updateAppointment(idOf('demo-3'), {
+      service: 'Haircut',
+      staffMemberId: staffId('Sam'),
+      durationMinutes: 60,
+    });
+
+    expect(Object.keys(updated).sort()).toEqual(appointmentKeys);
+    expect(updated).toEqual({
+      id: before.id,
+      client: { id: before.clientId, name: 'Chloe Martin', phone: '+34 600 000 020' },
+      staffMember: { id: staffId('Sam'), name: 'Sam' },
+      service: 'Haircut',
+      startsAt: before.startsAt,
+      durationMinutes: 60,
+      status: 'confirmed',
+      confirmedBy: 'client',
+      cancelledBy: null,
+      statusChangedAt: before.statusChangedAt,
+      createdAt: before.createdAt,
+      updatedAt: now.toISOString(),
+    });
+    updated.client.name = 'Changed';
+    updated.staffMember.name = 'Changed';
+    expect(byToken('demo-3')).toMatchObject({ service: 'Haircut', staffMemberId: staffId('Sam'), durationMinutes: 60 });
+    await expect(api.getAppointment(idOf('demo-3'))).resolves.toMatchObject({
+      client: { name: 'Chloe Martin' },
+      staffMember: { name: 'Sam' },
+    });
+  });
+
+  it('edits a started appointment, but a new start must be in the future', async () => {
+    const { api, idOf } = await signedInStoreApi();
+    const id = idOf('demo-9');
+
+    await expect(api.updateAppointment(id, { service: 'Colour' })).resolves.toMatchObject({ service: 'Colour' });
+    await expect(api.updateAppointment(id, { startsAt: '2026-11-10T10:00:00Z' })).rejects.toMatchObject(
+      validationMessage('startsAt', 'Choose a time in the future.'),
+    );
+    await expect(api.updateAppointment(id, { startsAt: '2026-11-10T10:08:00Z' })).resolves.toMatchObject({
+      startsAt: '2026-11-10T10:08:00.000Z',
+    });
+  });
+
+  it('keeps the token, so the client link shows the new time and staff name, and the day view shows the change', async () => {
+    const { api, byToken, idOf, staffId } = await signedInStoreApi();
+
+    await api.updateAppointment(idOf('demo-1'), { startsAt: '2026-11-10T16:00:00Z', staffMemberId: staffId('Sam') });
+
+    expect(byToken('demo-1').token).toBe('demo-1');
+    await expect(api.getPublicAppointment('demo-1')).resolves.toMatchObject({
+      startsAt: '2026-11-10T16:00:00.000Z',
+      staffName: 'Sam',
+      status: 'pending',
+    });
+    const { appointments } = await api.getDayView({});
+    expect(appointments.find((appointment) => appointment.id === idOf('demo-1'))).toMatchObject({
+      startsAt: '2026-11-10T16:00:00.000Z',
+      staffMember: { name: 'Sam' },
+      atRiskReasons: [{ code: 'no_reply' }],
+    });
+  });
+});
+
+describe('createMockApi regenerateAppointmentLink', () => {
+  it('rejects with 401 when nobody is signed in', async () => {
+    const { api, byToken } = createMockApiWithStore();
+
+    await expect(api.regenerateAppointmentLink(byToken('demo-1').id)).rejects.toMatchObject({ status: 401, code: 'unauthenticated' });
+    expect(byToken('demo-1').token).toBe('demo-1');
+  });
+
+  it.each(['unknown', unknownId])('rejects the id %j with 404', async (id) => {
+    const { api } = await signedInStoreApi();
+
+    const error = await api.regenerateAppointmentLink(id).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 404, code: 'not_found', message: 'Not found.' });
+  });
+
+  it.each([
+    ['demo-5', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['demo-7', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['demo-8', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['demo-9', 'appointment_started', 'This appointment has already started.'],
+  ])('rejects %s with 409 %s and keeps the token', async (token, code, message) => {
+    const { api, byToken, idOf } = await signedInStoreApi();
+    const before = structuredClone(byToken(token));
+
+    const error = await api.regenerateAppointmentLink(idOf(token)).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ status: 409, code, message });
+    expect(byToken(token)).toEqual(before);
+  });
+
+  it('rejects a confirmed appointment that starts exactly now as started', async () => {
+    const { api, byToken, idOf } = await signedInStoreApi();
+    byToken('demo-3').startsAt = now.toISOString();
+
+    await expect(api.regenerateAppointmentLink(idOf('demo-3'))).rejects.toMatchObject({ status: 409, code: 'appointment_started' });
+    expect(byToken('demo-3').token).toBe('demo-3');
+  });
+
+  it('issues a new token, keeps the status and replaces the old link', async () => {
+    const { api, byToken, idOf, store } = await signedInStoreApi();
+    const before = structuredClone(byToken('demo-3'));
+
+    const regenerated = await api.regenerateAppointmentLink(idOf('demo-3'));
+
+    const { token } = store.appointments.find((appointment) => appointment.id === before.id)!;
+    expect(token).not.toBe('demo-3');
+    expect(token).toMatch(/^[0-9a-f-]{36}$/);
+    expect(Object.keys(regenerated).sort()).toEqual(['appointment', 'confirmationLink', 'message']);
+    expect(Object.keys(regenerated.appointment).sort()).toEqual(appointmentKeys);
+    expect(regenerated.confirmationLink).toBe(`${window.location.origin}/c/${token}`);
+    expect(regenerated.message).toBe(`Please confirm your appointment: ${regenerated.confirmationLink}`);
+    expect(regenerated.appointment).toMatchObject({
+      id: before.id,
+      status: 'confirmed',
+      confirmedBy: 'client',
+      statusChangedAt: before.statusChangedAt,
+      updatedAt: now.toISOString(),
+    });
+    await expect(api.getPublicAppointment('demo-3')).rejects.toMatchObject({ status: 404, code: 'not_found' });
+    await expect(api.getPublicAppointment(token)).resolves.toMatchObject({ service: 'Colour', status: 'confirmed' });
   });
 });

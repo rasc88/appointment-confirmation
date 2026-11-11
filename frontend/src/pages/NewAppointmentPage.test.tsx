@@ -453,6 +453,23 @@ describe('NewAppointmentPage appointment form', () => {
     expect(await screen.findByRole('heading', { name: 'Appointment created' })).toBeInTheDocument();
   });
 
+  it('sends one request for two submits in the same task', async () => {
+    const user = userEvent.setup();
+    const api = await createSignedInApi();
+    const createAppointment = vi.spyOn(api, 'createAppointment');
+    await renderLoaded(api);
+    await fillValidAppointment(user);
+    const form = screen.getByRole('button', { name: 'Create appointment' }).closest('form')!;
+
+    act(() => {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Appointment created' })).toBeInTheDocument();
+    expect(createAppointment).toHaveBeenCalledTimes(1);
+  });
+
   it('always sends the duration, even when left at the default', async () => {
     const user = userEvent.setup();
     const api = await createSignedInApi();

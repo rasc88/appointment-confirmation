@@ -244,11 +244,17 @@ select {
   }
 }
 
-.new-appointment {
+.new-appointment,
+.edit-appointment {
   max-width: 640px;
 }
 
+.edit-appointment {
+  overflow-wrap: anywhere;
+}
+
 .new-appointment section,
+.edit-appointment section,
 .appointment-form {
   margin-bottom: 16px;
   padding: 16px;
@@ -258,7 +264,8 @@ select {
   overflow-wrap: anywhere;
 }
 
-.new-appointment h2 {
+.new-appointment h2,
+.edit-appointment h2 {
   margin-top: 0;
 }
 
@@ -318,6 +325,7 @@ select {
 }
 
 .created-details,
+.appointment-details,
 .copy-texts {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -325,11 +333,13 @@ select {
 }
 
 .created-details dt,
+.appointment-details dt,
 .copy-texts dt {
   font-weight: 600;
 }
 
 .created-details dd,
+.appointment-details dd,
 .copy-texts dd {
   margin: 0;
   overflow-wrap: anywhere;
