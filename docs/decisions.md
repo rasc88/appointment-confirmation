@@ -274,6 +274,22 @@ Why: it matches the frontend mock (#32, #34), and the state is what the UI
 reloads on. Cost accepted: a malformed body on a cancelled appointment
 reports the state, not the field.
 
+### 29. Public endpoints are rate-limited in memory, 30 requests per IP per minute
+
+Every request to `/v1/public/appointments/{token}` and its confirm and
+cancel counts against `req.ip` in a fixed 60-second window; the 31st
+returns `429` with `Retry-After` until the window ends, before the token
+is checked. A token that is not 22–128 base64url characters is `404`
+without a database query. Every public response is
+`Cache-Control: no-store`.
+
+Why: a real client makes a handful of requests per visit, so 30 never
+blocks one, and counting every request, GET included, slows token
+guessing where it happens. In memory and a constant for the same reasons
+as decision 27. `no-store` keeps a browser from showing a stale status
+after a confirm or cancel. Cost accepted: clients behind one shared
+address share the limit, and a restart clears the counters.
+
 ## Process
 
 ### 13. One agent at a time

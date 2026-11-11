@@ -4,6 +4,7 @@ import { createAuthRouter } from './auth-routes.js';
 import { createClientRouter } from './client-routes.js';
 import { readConfig } from './config.js';
 import { ApiError, errorHandler } from './errors.js';
+import { createPublicRouter } from './public-routes.js';
 import { createStaffRouter } from './staff-routes.js';
 
 const checkedMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -29,6 +30,7 @@ export function createApp(options: { now?: () => Date } = {}) {
 
   const v1 = express.Router();
   v1.use(rejectCrossSiteRequests(new URL(config.publicBaseUrl).origin));
+  v1.use(createPublicRouter(now));
   v1.use(express.json({ limit: '100kb', strict: false }));
   v1.use(createAuthRouter(config));
   v1.use(createStaffRouter(config));
