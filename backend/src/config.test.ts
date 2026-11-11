@@ -5,11 +5,20 @@ import { readConfig } from './config.js';
 const valid = { SESSION_SECRET: 's'.repeat(32), PUBLIC_BASE_URL: 'http://localhost:5173' };
 
 describe('readConfig', () => {
-  it('returns both values when they are valid', () => {
-    expect(readConfig(valid)).toEqual({ sessionSecret: 's'.repeat(32), publicBaseUrl: 'http://localhost:5173' });
+  it('returns the values when they are valid', () => {
+    expect(readConfig({ ...valid, APP_ENV: 'local', APP_VERSION: 'v1.2.3' })).toEqual({
+      sessionSecret: 's'.repeat(32),
+      publicBaseUrl: 'http://localhost:5173',
+      environment: 'local',
+      version: 'v1.2.3',
+    });
     expect(readConfig({ ...valid, PUBLIC_BASE_URL: 'https://d111111abcdef8.cloudfront.net' }).publicBaseUrl).toBe(
       'https://d111111abcdef8.cloudfront.net',
     );
+  });
+
+  it('reports environment and version as unknown when unset', () => {
+    expect(readConfig(valid)).toMatchObject({ environment: 'unknown', version: 'unknown' });
   });
 
   it.each([undefined, '', 's'.repeat(31)])('rejects SESSION_SECRET %j', (secret) => {

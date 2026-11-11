@@ -115,6 +115,12 @@ async function runSeed() {
     console.error('Refusing to seed: APP_ENV is production');
     process.exit(1);
   }
+  const shouldSeedOnlyIfEmpty = process.argv.includes('--if-empty');
+  if (shouldSeedOnlyIfEmpty && (await defaultPrisma.staffMember.count()) > 0) {
+    console.log('Demo data skipped: the database already has staff');
+    await defaultPrisma.$disconnect();
+    return;
+  }
   await seedDemoData(defaultPrisma);
   const databaseUrl = new URL(process.env.DATABASE_URL ?? '');
   console.log(`Seeded demo data into ${databaseUrl.pathname.slice(1)} on ${databaseUrl.host}`);

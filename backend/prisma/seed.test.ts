@@ -1,8 +1,10 @@
 import bcrypt from 'bcryptjs';
 import { execFileSync } from 'node:child_process';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../src/db.js';
 import type { Appointment } from '../src/generated/prisma/client.js';
+import { ensureBusinessSettings } from '../src/settings.js';
+import { createTestAppointment, createTestClient, createTestStaff, resetDatabase } from '../src/test-helpers.js';
 import { seedDemoData } from './seed.js';
 
 const now = new Date('2026-03-10T10:07:00Z');
@@ -22,16 +24,34 @@ function countRows() {
   ]);
 }
 
+function runSeedScript(args: string[], env: NodeJS.ProcessEnv = {}) {
+  return execFileSync('npx', ['tsx', 'prisma/seed.ts', ...args], {
+    cwd: `${import.meta.dirname}/..`,
+    env: { ...process.env, ...env },
+    stdio: 'pipe',
+    encoding: 'utf8',
+  });
+}
+
+function readAllRows() {
+  return Promise.all([
+    prisma.staffMember.findMany({ orderBy: { id: 'asc' } }),
+    prisma.client.findMany({ orderBy: { id: 'asc' } }),
+    prisma.appointment.findMany({ orderBy: { id: 'asc' } }),
+    prisma.businessSettings.findMany(),
+  ]);
+}
+
+afterAll(async () => {
+  await prisma.$disconnect();
+});
+
 describe('seedDemoData', { timeout: 30_000 }, () => {
   let appointments: Appointment[];
 
   beforeAll(async () => {
     await seedDemoData(prisma, now);
     appointments = await prisma.appointment.findMany();
-  });
-
-  afterAll(async () => {
-    await prisma.$disconnect();
   });
 
   it('sets the demo business settings and leaves the rest at their defaults', async () => {
@@ -165,13 +185,46 @@ describe('seedDemoData', { timeout: 30_000 }, () => {
   it('refuses to run with APP_ENV=production and changes nothing', async () => {
     const before = await countRows();
 
-    expect(() =>
-      execFileSync('npx', ['tsx', 'prisma/seed.ts'], {
-        cwd: `${import.meta.dirname}/..`,
-        env: { ...process.env, APP_ENV: 'production' },
-        stdio: 'pipe',
-      }),
-    ).toThrow(/Refusing to seed: APP_ENV is production/);
+    expect(() => runSeedScript([], { APP_ENV: 'production' })).toThrow(/Refusing to seed: APP_ENV is production/);
     expect(await countRows()).toEqual(before);
+  });
+});
+
+describe('seed --if-empty', { timeout: 30_000 }, () => {
+  beforeEach(async () => {
+    await resetDatabase();
+    await ensureBusinessSettings(prisma);
+  });
+
+  it('changes no rows when the database has staff', async () => {
+    const staff = await createTestStaff();
+    const client = await createTestClient();
+    await createTestAppointment({ clientId: client.id, staffMemberId: staff.id });
+    const before = await readAllRows();
+
+    const output = runSeedScript(['--if-empty']);
+
+    expect(output).toContain('Demo data skipped: the database already has staff');
+    expect(await readAllRows()).toEqual(before);
+  });
+
+  it('seeds the demo data when the database has only the settings row', async () => {
+    runSeedScript(['--if-empty']);
+
+    const staff = await prisma.staffMember.findMany({ orderBy: { email: 'asc' } });
+    const settings = await prisma.businessSettings.findUniqueOrThrow({ where: { id: 1 } });
+    expect(staff.map((member) => member.email)).toEqual(['alex@demo.test', 'sam@demo.test']);
+    expect(await prisma.client.count()).toBe(8);
+    expect(await prisma.appointment.count()).toBe(13);
+    expect(settings.businessName).toBe('Demo Studio');
+  });
+
+  it('refuses to run with APP_ENV=production and changes nothing', async () => {
+    const before = await readAllRows();
+
+    expect(() => runSeedScript(['--if-empty'], { APP_ENV: 'production' })).toThrow(
+      /Refusing to seed: APP_ENV is production/,
+    );
+    expect(await readAllRows()).toEqual(before);
   });
 });

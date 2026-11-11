@@ -17,6 +17,23 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    mem_limit: 256m
+
+  app:
+    build: .
+    ports:
+      - "8080:3000"
+    environment:
+      DATABASE_URL: postgresql://app:app@db:5432/appointments
+      PUBLIC_BASE_URL: http://localhost:8080
+      APP_ENV: local
+      SESSION_SECRET: local-compose-only-session-secret-not-for-deploys
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run db:seed:if-empty && exec npm start"]
+    init: true
+    mem_limit: 512m
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   db-data:
