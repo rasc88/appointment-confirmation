@@ -35,13 +35,25 @@ const bodyParserMessages: Record<string, string> = {
   'entity.too.large': 'Request body is too large.',
 };
 
+/** body-parser throws `http-errors` with a 4xx `status`, for example for an unsupported charset or encoding. */
+function isClientHttpError(error: unknown) {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === 'number' && status >= 400 && status <= 499;
+}
+
 function toApiError(error: unknown) {
   if (error instanceof ApiError) {
     return error;
   }
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2039') {
+    return validationError('Text must not contain the NUL character.');
+  }
   const bodyParserType = (error as { type?: unknown } | null)?.type;
   if (typeof bodyParserType === 'string' && bodyParserType in bodyParserMessages) {
     return validationError(bodyParserMessages[bodyParserType]);
+  }
+  if (isClientHttpError(error)) {
+    return validationError('Request body could not be read.');
   }
   return null;
 }

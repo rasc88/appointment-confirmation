@@ -9,6 +9,14 @@ function encode(value: unknown) {
   return Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)).toString('base64url');
 }
 
+const base64urlAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/** The last of 43 characters carries 2 unused bits, so this decodes to the same bytes. */
+function flipUnusedBit(token: string) {
+  const last = base64urlAlphabet.indexOf(token.at(-1)!);
+  return `${token.slice(0, -1)}${base64urlAlphabet[last ^ 1]}`;
+}
+
 function sign(payload: string) {
   return createHmac('sha256', secret).update(payload).digest('base64url');
 }
@@ -53,6 +61,16 @@ describe('session tokens', () => {
     expect(verifySessionToken(`${payload}.${changed}`, secret)).toBeNull();
     expect(verifySessionToken(`${payload}.${signature}x`, secret)).toBeNull();
     expect(verifySessionToken(`${payload}.`, secret)).toBeNull();
+  });
+
+  it('rejects a signature that decodes to the right bytes but is not canonical base64url', () => {
+    const token = createSessionToken(staffId, secret);
+    const [, signature] = token.split('.');
+
+    expect(Buffer.from(flipUnusedBit(signature), 'base64url')).toEqual(Buffer.from(signature, 'base64url'));
+    expect(verifySessionToken(token, secret)).toBe(staffId);
+    expect(verifySessionToken(`${token}=`, secret)).toBeNull();
+    expect(verifySessionToken(flipUnusedBit(token), secret)).toBeNull();
   });
 
   it('rejects a token signed with another secret', () => {
