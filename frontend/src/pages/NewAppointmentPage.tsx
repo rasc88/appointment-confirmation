@@ -16,7 +16,7 @@ const appointmentFields = ['clientId', 'staffMemberId', 'service', 'startsAt', '
 
 type AppointmentField = (typeof appointmentFields)[number];
 
-type FieldErrors = Partial<Record<AppointmentField, string>>;
+export type FieldErrors = Partial<Record<AppointmentField, string>>;
 
 type View =
   | { kind: 'loading' }
@@ -27,7 +27,7 @@ function isUnauthenticated(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
 }
 
-function isAppointmentField(field: string | undefined): field is AppointmentField {
+export function isAppointmentField(field: string | undefined): field is AppointmentField {
   return appointmentFields.includes(field as AppointmentField);
 }
 
@@ -195,19 +195,20 @@ function ClientSection({ client, error, onChange }: { client: Client | null; err
   );
 }
 
-interface AppointmentValues {
-  client: Client | null;
+export interface AppointmentFieldValues {
   staffMemberId: string;
   service: string;
   startsAtLocal: string;
   duration: string;
 }
 
-function validate(values: AppointmentValues, timeZone: string): FieldErrors {
+interface AppointmentValues extends AppointmentFieldValues {
+  client: Client | null;
+}
+
+/** A start time equal to `unchangedStartsAtLocal` is not checked against now, so an edit can keep a past start. */
+export function validateFields(values: AppointmentFieldValues, timeZone: string, unchangedStartsAtLocal?: string): FieldErrors {
   const errors: FieldErrors = {};
-  if (!values.client) {
-    errors.clientId = 'Choose or create a client.';
-  }
   if (!values.service.trim()) {
     errors.service = 'Enter the service.';
   }
@@ -216,7 +217,7 @@ function validate(values: AppointmentValues, timeZone: string): FieldErrors {
     errors.startsAt = 'Enter the date and time.';
   } else if (!startsAt) {
     errors.startsAt = `That time does not exist in ${timeZone} because the clocks change. Choose another time.`;
-  } else if (Date.parse(startsAt) <= Date.now()) {
+  } else if (values.startsAtLocal !== unchangedStartsAtLocal && Date.parse(startsAt) <= Date.now()) {
     errors.startsAt = 'Choose a time in the future.';
   }
   const duration = Number(values.duration);
@@ -224,6 +225,87 @@ function validate(values: AppointmentValues, timeZone: string): FieldErrors {
     errors.durationMinutes = 'Enter a duration from 5 to 480 minutes.';
   }
   return errors;
+}
+
+function validate(values: AppointmentValues, timeZone: string): FieldErrors {
+  const errors = validateFields(values, timeZone);
+  if (!values.client) {
+    errors.clientId = 'Choose or create a client.';
+  }
+  return errors;
+}
+
+export function AppointmentFields({
+  values,
+  errors,
+  timeZone,
+  staffOptions,
+  onChange,
+}: {
+  values: AppointmentFieldValues;
+  errors: FieldErrors;
+  timeZone: string;
+  staffOptions: { id: string; name: string }[];
+  onChange(update: Partial<AppointmentFieldValues>): void;
+}) {
+  return (
+    <>
+      <div className="field">
+        <label htmlFor="staffMemberId">Staff</label>
+        <select
+          id="staffMemberId"
+          value={values.staffMemberId}
+          onChange={(event) => onChange({ staffMemberId: event.target.value })}
+          {...errorProps('staffMemberId', errors.staffMemberId)}
+        >
+          {staffOptions.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.name}
+            </option>
+          ))}
+        </select>
+        <FieldError id="staffMemberId" error={errors.staffMemberId} />
+      </div>
+      <div className="field">
+        <label htmlFor="service">Service</label>
+        <input
+          id="service"
+          maxLength={80}
+          value={values.service}
+          onChange={(event) => onChange({ service: event.target.value })}
+          {...errorProps('service', errors.service)}
+        />
+        <FieldError id="service" error={errors.service} />
+      </div>
+      <div className="field">
+        <label htmlFor="startsAt">Date and time</label>
+        <input
+          id="startsAt"
+          type="datetime-local"
+          value={values.startsAtLocal}
+          onChange={(event) => onChange({ startsAtLocal: event.target.value })}
+          aria-invalid={errors.startsAt ? true : undefined}
+          aria-describedby={errors.startsAt ? 'startsAt-hint startsAt-error' : 'startsAt-hint'}
+        />
+        <p id="startsAt-hint" className="field-hint">{`Times in ${timeZone}`}</p>
+        <FieldError id="startsAt" error={errors.startsAt} />
+      </div>
+      <div className="field">
+        <label htmlFor="durationMinutes">Duration (minutes)</label>
+        <input
+          id="durationMinutes"
+          type="number"
+          min={5}
+          max={480}
+          step={1}
+          value={values.duration}
+          onChange={(event) => onChange({ duration: event.target.value })}
+          {...errorProps('durationMinutes', errors.durationMinutes)}
+        />
+        <FieldError id="durationMinutes" error={errors.durationMinutes} />
+      </div>
+    </>
+  );
 }
 
 function AppointmentForm({
@@ -247,6 +329,8 @@ function AppointmentForm({
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Set before the request, so a second submit in the same task sees it before any render. */
+  const isSubmittingRef = useRef(false);
   const { timeZone } = settings;
 
   function change(update: Partial<AppointmentValues>) {
@@ -260,7 +344,7 @@ function AppointmentForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSubmitting) {
+    if (isSubmittingRef.current) {
       return;
     }
     const nextErrors = validate(values, timeZone);
@@ -269,6 +353,7 @@ function AppointmentForm({
     if (Object.keys(nextErrors).length > 0) {
       return;
     }
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       onCreated(
@@ -290,6 +375,7 @@ function AppointmentForm({
       } else {
         setFormError('Could not create the appointment. Check your connection and try again.');
       }
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   }
@@ -298,60 +384,7 @@ function AppointmentForm({
     <>
       <ClientSection client={values.client} error={errors.clientId} onChange={changeClient} />
       <form className="appointment-form" onSubmit={handleSubmit} noValidate>
-        <div className="field">
-          <label htmlFor="staffMemberId">Staff</label>
-          <select
-            id="staffMemberId"
-            value={values.staffMemberId}
-            onChange={(event) => change({ staffMemberId: event.target.value })}
-            {...errorProps('staffMemberId', errors.staffMemberId)}
-          >
-            {activeStaff.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.name}
-              </option>
-            ))}
-          </select>
-          <FieldError id="staffMemberId" error={errors.staffMemberId} />
-        </div>
-        <div className="field">
-          <label htmlFor="service">Service</label>
-          <input
-            id="service"
-            maxLength={80}
-            value={values.service}
-            onChange={(event) => change({ service: event.target.value })}
-            {...errorProps('service', errors.service)}
-          />
-          <FieldError id="service" error={errors.service} />
-        </div>
-        <div className="field">
-          <label htmlFor="startsAt">Date and time</label>
-          <input
-            id="startsAt"
-            type="datetime-local"
-            value={values.startsAtLocal}
-            onChange={(event) => change({ startsAtLocal: event.target.value })}
-            aria-invalid={errors.startsAt ? true : undefined}
-            aria-describedby={errors.startsAt ? 'startsAt-hint startsAt-error' : 'startsAt-hint'}
-          />
-          <p id="startsAt-hint" className="field-hint">{`Times in ${timeZone}`}</p>
-          <FieldError id="startsAt" error={errors.startsAt} />
-        </div>
-        <div className="field">
-          <label htmlFor="durationMinutes">Duration (minutes)</label>
-          <input
-            id="durationMinutes"
-            type="number"
-            min={5}
-            max={480}
-            step={1}
-            value={values.duration}
-            onChange={(event) => change({ duration: event.target.value })}
-            {...errorProps('durationMinutes', errors.durationMinutes)}
-          />
-          <FieldError id="durationMinutes" error={errors.durationMinutes} />
-        </div>
+        <AppointmentFields values={values} errors={errors} timeZone={timeZone} staffOptions={activeStaff} onChange={change} />
         {formError && <p role="alert" className="form-error">{formError}</p>}
         <button type="submit" disabled={isSubmitting}>
           {isSubmitting ? 'Creating…' : 'Create appointment'}
