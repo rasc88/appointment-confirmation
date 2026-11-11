@@ -63,8 +63,9 @@ flowchart LR
 4. **Implement.** The engineer implements on that branch, pushes, opens a
    pull request whose description starts with `Closes #<n>`, and comments
    `## Engineer: ready for QA` on the issue.
-5. **CI.** GitHub Actions runs lint, typecheck, and tests on the pull
-   request (once the CI issue has landed).
+5. **CI.** The `CI` workflow (`.github/workflows/ci.yml`) runs three
+   parallel checks on the pull request: `lint-typecheck`, `test`, and
+   `e2e`.
 6. **Verify.** QA checks out the branch, runs the checks, and posts
    `## QA: PASS` or `## QA: FAIL` on the issue.
 7. **On FAIL**, back to step 4 with the QA comment as input. After three
@@ -93,16 +94,28 @@ issue. Every role uses them exactly.
 
 ## Protecting `main`
 
-Once the CI issue has landed, `main` is protected on GitHub:
+`main` is protected on GitHub:
 
-- Changes only through a pull request
-- The CI checks must pass before merging
-- The branch must be up to date with `main` before merging
+- Changes only through a pull request, with 0 required approvals (every
+  agent acts as the same GitHub account, which cannot approve its own
+  pull request; QA's `## QA: PASS` comment is the review)
+- The three CI checks, `lint-typecheck`, `test`, and `e2e`, must pass
+  before merging
+- The branch must be up to date with `main` before merging (`strict`)
+- Administrators are not enforced, force pushes and deletion of `main`
+  are not allowed
+
+Inspect the settings with
+`gh api repos/rasc88/appointment-confirmation/branches/main/protection`.
+Renaming, adding, or removing a CI job updates the protection in the same
+pull request, otherwise every pull request waits for a check that never
+reports.
 
 Administrators are not bound by the rule. The repository owner may merge
 with failing CI only when CI itself is broken (a GitHub outage, an expired
 secret), not when the change is failing its tests. When they do, they
-comment on the pull request with the reason. Agents never bypass the rule.
+comment on the pull request with the reason. Agents never bypass the rule
+and never pass `--admin` to `gh pr merge`.
 
 ## Releases
 

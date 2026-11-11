@@ -112,5 +112,8 @@ Rules
 - Business rules (hours, thresholds, message wording) live in business
   settings in the database, not in environment variables or constants.
 - `npm run lint` and `npm run typecheck` must pass before any commit.
+- CI (`.github/workflows/ci.yml`) runs `npm run lint`, `npm run typecheck`,
+  `npm test`, and `npm run test:e2e` on every pull request to `main`, and
+  its three checks (`lint-typecheck`, `test`, `e2e`) must pass to merge.
 - Ask before adding a dependency that the spec or an issue doesn't name.
 - When you add or change a command, update this file in the same commit.

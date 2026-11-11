@@ -430,3 +430,35 @@ bypass branch protection, when CI itself is broken.
 
 Why: the rubric needs a human gate on production, not on every merge.
 Keeping merges with the orchestrator lets the backlog run without waiting.
+
+### 35. CI runs three parallel jobs and `main` requires all three
+
+One workflow, `.github/workflows/ci.yml` (`CI`), runs on every pull request
+to `main` and every push to `main`, with no path filters, read-only
+`contents` permission, no secrets, and cancel-in-progress per ref. Its jobs
+`lint-typecheck`, `test` (with a `postgres:17` service), and `e2e` run in
+parallel on `ubuntu-24.04`, have no `name:` key, and use only GitHub's own
+`actions/*` actions pinned to major tags. Playwright browsers are not
+cached; a failed `e2e` uploads its report and traces for 7 days. `main`
+requires a pull request with 0 approvals, the three checks green, and the
+branch up to date; admins are not enforced, and force pushes and deletion
+are blocked.
+
+Why: the wall-clock time is the slowest job (e2e) instead of the sum,
+public-repository minutes are free, and three checks show at a glance
+which kind of failure it is. All three are required because spec §16 and
+this process require lint, typecheck, and tests in CI, and e2e is the only
+check of the Docker image before #19 deploys it. Protection matches check
+names as strings, so the job id is the only name a job has, and a display
+name edit cannot break merging. GitHub's own actions with a read-only
+token and no secrets gain little from SHA pins, which would need a bot to
+keep current. A fixed runner image keeps a silent `ubuntu-latest` move
+from breaking `--with-deps`. Playwright advises against caching browsers,
+and `--with-deps` needs apt anyway. `e2e` brings its own database
+(decision 34). No path filters, because a required check that never starts
+blocks a docs-only pull request forever. 0 approvals still refuses a
+direct push to `main`, while one approval would block every merge, since
+every agent acts as the same account. Admins stay unenforced so the owner
+can merge when CI itself is broken (decision 14); agents never pass
+`--admin`. Cost accepted: every pull request waits for the e2e job, and
+renaming a job means updating the protection in the same pull request.

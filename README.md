@@ -1,5 +1,7 @@
 # Appointment Confirmation
 
+[![CI](https://github.com/rasc88/appointment-confirmation/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rasc88/appointment-confirmation/actions/workflows/ci.yml)
+
 Small service businesses lose income when clients miss appointments without
 warning. Appointment Confirmation lets staff send each client a private link
 to confirm or cancel, and shows on one dashboard which appointments are
