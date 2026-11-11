@@ -355,6 +355,7 @@ export function DashboardPage() {
           if (isUnauthenticated(error)) {
             handleUnauthenticated();
           } else if (isRefresh) {
+            setView((current) => (current.kind === 'loaded' ? current : { kind: 'error' }));
             setHasRefreshFailed(true);
             scheduleRefresh();
           } else {

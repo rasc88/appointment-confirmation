@@ -539,6 +539,8 @@ describe('createMockApi settings, clients and appointments', () => {
   });
 });
 
+const unknownUuid = '00000000-0000-4000-8000-000000000000';
+
 async function validAppointmentRequest(api: ApiService): Promise<CreateAppointmentRequest> {
   const [ana] = await api.searchClients('Ana Torres');
   const alex = (await api.listStaff()).find((staffMember) => staffMember.name === 'Alex')!;
@@ -643,19 +645,45 @@ describe('createMockApi createAppointment and getAppointment', () => {
     ['a fractional duration', { durationMinutes: 30.5 }, 'durationMinutes'],
     ['an unknown clientId and an empty service', { clientId: 'unknown', service: '' }, 'clientId'],
     ['an empty service and a past startsAt', { service: '', startsAt: '2026-11-10T09:00:00.000Z' }, 'service'],
-    ['a past startsAt and a bad duration', { startsAt: '2026-11-10T09:00:00.000Z', durationMinutes: 1 }, 'startsAt'],
+    ['a past startsAt and a bad duration', { startsAt: '2026-11-10T09:00:00.000Z', durationMinutes: 1 }, 'durationMinutes'],
+    ['a well-formed but unknown clientId', { clientId: unknownUuid }, 'clientId'],
+    ['a malformed staffMemberId', { staffMemberId: 'unknown' }, 'staffMemberId'],
+    ['a startsAt without seconds', { startsAt: '2026-11-12T10:00Z' }, 'startsAt'],
+    ['a startsAt on a date that does not exist', { startsAt: '2026-02-30T10:00:00Z' }, 'startsAt'],
+    ['a malformed service and an unknown client', { service: '', clientId: unknownUuid }, 'service'],
+    ['a malformed duration and an unknown client', { durationMinutes: 0, clientId: unknownUuid }, 'durationMinutes'],
+    ['an unknown key and an unknown client', { notes: 'x', clientId: unknownUuid }, 'notes'],
+    ['an unknown key and an unknown staff member', { notes: 'x', staffMemberId: unknownUuid }, 'notes'],
+    ['an unknown staff member and a past startsAt', { staffMemberId: unknownUuid, startsAt: '2026-11-10T09:00:00.000Z' }, 'staffMemberId'],
+    ['a null clientId', { clientId: null }, 'clientId'],
+    ['a numeric service', { service: 3 }, 'service'],
+    ['a null durationMinutes', { durationMinutes: null }, 'durationMinutes'],
   ])('rejects %s with 422 on the first failing field', async (_case, change, field) => {
     const { api, store } = createMockApiWithStore();
     await api.login({ email: 'alex@demo.test', password: 'demo1234' });
     const count = store.appointments.length;
 
     const error = await api
-      .createAppointment({ ...(await validAppointmentRequest(api)), ...change })
+      .createAppointment({ ...(await validAppointmentRequest(api)), ...change } as CreateAppointmentRequest)
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject(validationField(field));
     expect(store.appointments).toHaveLength(count);
+  });
+
+  it('reports the unknown key itself as the field, with the backend message', async () => {
+    const api = await signedInMockApi();
+    const body = { ...(await validAppointmentRequest(api)), notes: 'x' } as CreateAppointmentRequest;
+
+    await expect(api.createAppointment(body)).rejects.toMatchObject({ status: 422, message: 'Unknown field.', field: 'notes' });
+  });
+
+  it('treats keys whose value is undefined as absent', async () => {
+    const api = await signedInMockApi();
+    const body = { ...(await validAppointmentRequest(api)), durationMinutes: undefined, notes: undefined } as CreateAppointmentRequest;
+
+    await expect(api.createAppointment(body)).resolves.toMatchObject({ appointment: { durationMinutes: 30 } });
   });
 
   it('rejects an inactive staff member with 422 on staffMemberId', async () => {
@@ -950,6 +978,47 @@ describe('createMockApi updateSettings', () => {
     });
   });
 
+  it.each([
+    [{ businessName: null }, 'businessName', 'Must be between 1 and 80 characters.'],
+    [{ businessName: 3 }, 'businessName', 'Must be between 1 and 80 characters.'],
+    [{ timeZone: null }, 'timeZone', 'Must be an IANA time zone, for example Europe/Madrid.'],
+    [{ noShowThreshold: '3' }, 'noShowThreshold', 'Must be a whole number between 1 and 10.'],
+    [{ noReplyWindowHours: null }, 'noReplyWindowHours', 'Must be a whole number between 1 and 168.'],
+    [{ messageTemplate: null }, 'messageTemplate', 'Must be between 1 and 500 characters.'],
+    [{ messageTemplate: ['{link}'] }, 'messageTemplate', 'Must be between 1 and 500 characters.'],
+  ])('rejects the wrongly typed %j with 422 on %s', async (body, field, message) => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateSettings(body as unknown as UpdateSettingsRequest)).rejects.toMatchObject(
+      validationMessage(field, message),
+    );
+  });
+
+  it('rejects an unknown key with 422 naming the key', async () => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateSettings({ theme: 'dark' } as UpdateSettingsRequest)).rejects.toMatchObject(
+      validationMessage('theme', 'Unknown field.'),
+    );
+  });
+
+  it('checks unknown keys after every field', async () => {
+    const api = await signedInMockApi();
+    const body = { theme: 'dark', messageTemplate: 'no link', noShowThreshold: 2 } as UpdateSettingsRequest;
+
+    await expect(api.updateSettings(body)).rejects.toMatchObject({ field: 'messageTemplate' });
+    await expect(api.updateSettings({ ...body, messageTemplate: '{link}' })).rejects.toMatchObject({ field: 'theme' });
+    await expect(api.getSettings()).resolves.toMatchObject({ noShowThreshold: 1 });
+  });
+
+  it('treats keys whose value is undefined as absent', async () => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateSettings({ noShowThreshold: 2, theme: undefined } as UpdateSettingsRequest)).resolves.toMatchObject({
+      noShowThreshold: 2,
+    });
+  });
+
   it('writes nothing when any field fails', async () => {
     const api = await signedInMockApi();
 
@@ -1050,6 +1119,18 @@ describe('createMockApi createStaffMember', () => {
     await expect(api.createStaffMember({ name: 'Kim', email: 'kim@demo.test', password: '12345678' })).resolves.toMatchObject({
       name: 'Kim',
     });
+  });
+
+  it('counts the 254-character email limit in code points', async () => {
+    const api = await signedInMockApi();
+    const email = `${'😀'.repeat(244)}@demo.test`;
+    expect([...email]).toHaveLength(254);
+    expect(email.length).toBeGreaterThan(254);
+
+    await expect(api.createStaffMember({ ...jordan, email })).resolves.toMatchObject({ email });
+    await expect(api.createStaffMember({ ...jordan, email: `😀${email}` })).rejects.toMatchObject(
+      validationMessage('email', 'Enter a valid email address.'),
+    );
   });
 
   it.each(['SAM@demo.test', 'sam@demo.test'])('rejects the email %j already used, with 409 email_taken', async (email) => {

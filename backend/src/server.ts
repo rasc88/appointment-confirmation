@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { readConfig } from './config.js';
 import { prisma } from './db.js';
@@ -19,6 +22,12 @@ try {
   process.exit(1);
 }
 
-createApp().listen(port, () => {
+const builtFrontendDir = fileURLToPath(new URL('../../frontend/dist', import.meta.url));
+const hasFrontendBuild = existsSync(path.join(builtFrontendDir, 'index.html'));
+if (!hasFrontendBuild) {
+  console.log('Frontend build not found (run `npm run build`): serving the API only');
+}
+
+createApp({ frontendDir: hasFrontendBuild ? builtFrontendDir : undefined }).listen(port, () => {
   console.log(`Backend listening on http://localhost:${port}`);
 });

@@ -6,7 +6,7 @@ import { ApiError } from '../api/api-error';
 import { ApiProvider } from '../api/api-context';
 import type { ApiService } from '../api/api-service';
 import { createMockApi } from '../api/mock-api';
-import type { DayView } from '../api/types';
+import type { Appointment, DayView } from '../api/types';
 import { App } from '../App';
 
 const now = new Date('2026-11-10T10:07:00Z');
@@ -836,6 +836,41 @@ describe('DashboardPage action errors', () => {
     expect(getDayView).toHaveBeenCalledTimes(3);
     expect(buttonNames(itemFor('Confirmed', 'Ana Torres'))).toEqual(['Cancel']);
     expect(screen.queryByText('Could not refresh. Trying again in 30 seconds.')).not.toBeInTheDocument();
+  });
+
+  it('shows the load error when the date changes during an action and the reload after it fails', async () => {
+    const api = await createSignedInApi();
+    const confirmed = deferred<Appointment>();
+    const { appointments } = await api.getDayView({});
+    const ana = appointments.find((appointment) => appointment.client.name === 'Ana Torres')!;
+    const { confirmAppointment } = api;
+    vi.spyOn(api, 'confirmAppointment').mockReturnValue(confirmed.promise);
+    const getDayView = vi.spyOn(api, 'getDayView');
+    await renderDashboard(api);
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+    getDayView.mockReturnValueOnce(new Promise(() => {}));
+    chooseDate('2026-11-11');
+    await flush();
+    expect(getDayView).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading appointments…');
+
+    getDayView.mockRejectedValueOnce(networkError);
+    confirmed.resolve(await confirmAppointment(ana.id));
+    await flush();
+
+    expect(getDayView).toHaveBeenCalledTimes(3);
+    expect(screen.queryByText('Loading appointments…')).not.toBeInTheDocument();
+    expect(screen.getByText('Could not load appointments. Check your connection and try again.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await flush();
+
+    expect(getDayView).toHaveBeenCalledTimes(4);
+    expect(getDayView).toHaveBeenLastCalledWith({ date: '2026-11-11' });
+    expect(screen.queryByText('Could not load appointments. Check your connection and try again.')).not.toBeInTheDocument();
+    expect(summaries()).not.toHaveLength(0);
   });
 
   it('clears the alert when the next action starts', async () => {

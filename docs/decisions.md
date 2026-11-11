@@ -229,8 +229,8 @@ Docker. The 72-byte bcrypt limit is why `openapi.yaml` caps passwords at
 
 Types in `frontend/src/api/types.ts` are hand-written to match
 `openapi.yaml`. Pages get the service from `useApi()`; a mock
-implementation backs the prototype and the frontend tests, and an HTTP one
-(#14) backs the app. Every implementation rejects with `ApiError`
+implementation backs the frontend tests, and an HTTP one (#14) backs the
+app. Every implementation rejects with `ApiError`
 (`status`, `code`, `field`). Routing uses `react-router`; styling is plain
 CSS.
 
@@ -321,6 +321,26 @@ case-sensitive.
 Why: it matches the frontend mock (#9) so #14 is a swap, one field error
 is what the page can show, and the page offers exactly that zone set.
 Cost accepted: a zone name only one browser lists is rejected.
+
+### 32. The backend serves the built frontend and runs from TypeScript source with `tsx`
+
+`npm run build` builds only the frontend (`vite build`); `npm start` runs
+`tsx src/server.ts` with no backend compile step. The backend serves
+`frontend/dist` with an `index.html` fallback for every non-`/v1` GET
+outside `/assets/`, hashed assets cached for a year as immutable and
+`index.html` revalidated on every load, plus `nosniff`,
+`Referrer-Policy: no-referrer`, and a `'self'`-only CSP. `main.tsx` always
+uses the HTTP service; the mock is for tests only, with no runtime switch.
+
+Why: one origin means no CORS and the Origin check and `SameSite` cookie
+work unchanged (decision 26); #15's image needs the devDependencies anyway
+(the Prisma CLI for migrations, `tsx` for the seed), so compiling the
+backend would add a build config and a second layout for no gain;
+`npm run dev` already runs the real backend, so a mock switch would only be
+a second way to run the app to keep working. `no-referrer` keeps a
+`/c/{token}` URL out of `Referer` headers, and `frame-ancestors 'none'`
+stops the confirm buttons being framed. Cost accepted: `tsx` compiles on
+start (a fraction of a second) and the image carries devDependencies.
 
 ## Process
 

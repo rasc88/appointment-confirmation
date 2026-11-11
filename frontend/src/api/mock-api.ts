@@ -197,29 +197,39 @@ function getClient(store: DemoData, id: string): ClientDetail {
   };
 }
 
-const dateTimePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/i;
+const createFields = ['clientId', 'staffMemberId', 'service', 'startsAt', 'durationMinutes'];
 
-/** Checks in a fixed order and reports only the first failure. */
-function assertValidNewAppointment(store: DemoData, body: CreateAppointmentRequest, now: Date) {
+/** Same order and messages as `POST /appointments` in the backend: each field's shape, unknown keys, then the client, staff member and start time. */
+function assertValidNewAppointment(store: DemoData, requestBody: CreateAppointmentRequest, now: Date) {
+  const body = Object.fromEntries(Object.entries(requestBody).filter(([, value]) => value !== undefined));
   const { clientId, staffMemberId, service, startsAt, durationMinutes } = body;
+  if (typeof clientId !== 'string' || !uuidPattern.test(clientId)) {
+    throw validationError(clientMessage, 'clientId');
+  }
+  if (typeof staffMemberId !== 'string' || !uuidPattern.test(staffMemberId)) {
+    throw validationError(staffMemberMessage, 'staffMemberId');
+  }
+  if (typeof service !== 'string' || !hasLength(service, 1, 80)) {
+    throw validationError('Enter the service, up to 80 characters.', 'service');
+  }
+  if (typeof startsAt !== 'string' || !offsetDateTimePattern.test(startsAt)) {
+    throw validationError(startsAtMessage, 'startsAt');
+  }
+  if (durationMinutes !== undefined && !isDuration(durationMinutes)) {
+    throw validationError('Enter a duration from 5 to 480 minutes.', 'durationMinutes');
+  }
+  const unknownField = Object.keys(body).find((key) => !createFields.includes(key));
+  if (unknownField !== undefined) {
+    throw validationError('Unknown field.', unknownField);
+  }
   if (!store.clients.some((client) => client.id === clientId)) {
-    throw new ApiError(422, 'validation_error', 'Choose a client.', 'clientId');
+    throw validationError(clientMessage, 'clientId');
   }
   if (!store.staff.some((staffMember) => staffMember.id === staffMemberId && staffMember.isActive)) {
-    throw new ApiError(422, 'validation_error', 'Choose an active staff member.', 'staffMemberId');
+    throw validationError(staffMemberMessage, 'staffMemberId');
   }
-  if (service.length < 1 || service.length > 80) {
-    throw new ApiError(422, 'validation_error', 'Enter the service, up to 80 characters.', 'service');
-  }
-  const startsAtMs = Date.parse(startsAt);
-  if (!dateTimePattern.test(startsAt) || Number.isNaN(startsAtMs)) {
-    throw new ApiError(422, 'validation_error', 'Enter a valid date and time.', 'startsAt');
-  }
-  if (startsAtMs <= now.getTime()) {
-    throw new ApiError(422, 'validation_error', 'Choose a time in the future.', 'startsAt');
-  }
-  if (durationMinutes !== undefined && (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 480)) {
-    throw new ApiError(422, 'validation_error', 'Enter a duration from 5 to 480 minutes.', 'durationMinutes');
+  if (Date.parse(startsAt) <= now.getTime()) {
+    throw validationError('Choose a time in the future.', 'startsAt');
   }
 }
 
@@ -325,6 +335,7 @@ function hasLength(value: string, min: number, max: number): boolean {
   return length >= min && length <= max;
 }
 
+const clientMessage = 'Choose a client.';
 const staffMemberMessage = 'Choose an active staff member.';
 const startsAtMessage = 'Enter a valid date and time.';
 const updateFields = ['staffMemberId', 'service', 'startsAt', 'durationMinutes'];
@@ -446,26 +457,39 @@ function isTimeZone(value: string): boolean {
   return value === 'UTC' || Intl.supportedValuesOf('timeZone').includes(value);
 }
 
-function assertValidSettings(body: UpdateSettingsRequest) {
-  if (Object.values(body).every((value) => value === undefined)) {
+const settingFields = ['businessName', 'timeZone', ...Object.keys(settingRanges), 'messageTemplate'];
+
+/** Same order and messages as `PATCH /settings` in the backend: each field sent, then unknown keys (decision 30). */
+function assertValidSettings(requestBody: UpdateSettingsRequest) {
+  const body: Record<string, unknown> = Object.fromEntries(
+    Object.entries(requestBody).filter(([, value]) => value !== undefined),
+  );
+  if (Object.keys(body).length === 0) {
     throw validationError('Change at least one setting.');
   }
   const { businessName, timeZone, messageTemplate } = body;
-  if (businessName !== undefined && !hasLength(businessName, 1, 80)) {
+  if (businessName !== undefined && (typeof businessName !== 'string' || !hasLength(businessName, 1, 80))) {
     throw validationError('Must be between 1 and 80 characters.', 'businessName');
   }
-  if (timeZone !== undefined && !isTimeZone(timeZone)) {
+  if (timeZone !== undefined && (typeof timeZone !== 'string' || !isTimeZone(timeZone))) {
     throw validationError('Must be an IANA time zone, for example Europe/Madrid.', 'timeZone');
   }
   for (const [field, [min, max]] of Object.entries(settingRanges)) {
-    const value = body[field as keyof typeof settingRanges];
-    if (value !== undefined && (!Number.isInteger(value) || value < min || value > max)) {
+    const value = body[field];
+    if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max)) {
       throw validationError(`Must be a whole number between ${min} and ${max}.`, field);
     }
   }
-  const templateError = messageTemplate === undefined ? null : messageTemplateError(messageTemplate);
-  if (templateError) {
-    throw validationError(templateError, 'messageTemplate');
+  if (messageTemplate !== undefined) {
+    const templateError =
+      typeof messageTemplate === 'string' ? messageTemplateError(messageTemplate) : 'Must be between 1 and 500 characters.';
+    if (templateError) {
+      throw validationError(templateError, 'messageTemplate');
+    }
+  }
+  const unknownField = Object.keys(body).find((key) => !settingFields.includes(key));
+  if (unknownField !== undefined) {
+    throw validationError('Unknown field.', unknownField);
   }
 }
 
@@ -482,7 +506,7 @@ function createStaffMember(store: DemoData, { name, email, password }: CreateSta
   if (!hasLength(name, 1, 80)) {
     throw validationError('Must be between 1 and 80 characters.', 'name');
   }
-  if (email.length > 254 || !emailPattern.test(email)) {
+  if ([...email].length > 254 || !emailPattern.test(email)) {
     throw validationError('Enter a valid email address.', 'email');
   }
   if (!hasLength(password, 8, 72)) {
