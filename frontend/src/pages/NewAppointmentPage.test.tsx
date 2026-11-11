@@ -581,6 +581,20 @@ describe('NewAppointmentPage after create', () => {
     expect(screen.queryByLabelText('Service')).toBeNull();
   });
 
+  it('links the client name to the client page', async () => {
+    const api = await createSignedInApi();
+    const [ana] = await api.searchClients('Ana Torres');
+    const { user } = await createAna(api);
+
+    const link = within(document.querySelector('.created-panel') as HTMLElement).getByRole('link', { name: 'Ana Torres' });
+    expect(link).toHaveAttribute('href', `/clients/${ana.id}`);
+
+    await user.click(link);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ana Torres' })).toBeInTheDocument();
+    expect(await screen.findByText('Tuesday, 10 November 2026, 18:00')).toBeInTheDocument();
+  });
+
   it('copies the link and the message', async () => {
     const api = await createSignedInApi();
     const createAppointment = vi.spyOn(api, 'createAppointment');

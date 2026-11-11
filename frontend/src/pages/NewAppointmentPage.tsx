@@ -376,7 +376,9 @@ function CreatedPanel({
       <h2 id="created-heading">Appointment created</h2>
       <dl className="created-details">
         <dt>Client</dt>
-        <dd>{client.name}</dd>
+        <dd>
+          <Link to={`/clients/${client.id}`}>{client.name}</Link>
+        </dd>
         <dt>Service</dt>
         <dd>{service}</dd>
         <dt>Staff</dt>

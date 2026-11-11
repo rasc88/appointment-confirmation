@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { ApiError } from '../api/api-error';
 import { useApi } from '../api/api-context';
 import type { AtRiskReason, DayAppointment, DayView, StaffMember } from '../api/types';
+import { statusText } from '../appointment-status';
 import { useAuth } from '../auth/auth-context';
 import { formatTime } from '../format-date-time';
 
@@ -34,21 +35,6 @@ function groupOf(appointment: DayAppointment, now: number): GroupName {
     return 'At risk';
   }
   return status === 'pending' ? 'Pending' : 'Confirmed';
-}
-
-function statusText({ status, confirmedBy, cancelledBy }: DayAppointment): string {
-  switch (status) {
-    case 'pending':
-      return 'Pending';
-    case 'confirmed':
-      return confirmedBy === 'staff' ? 'Confirmed by staff' : 'Confirmed by client';
-    case 'cancelled':
-      return cancelledBy === 'staff' ? 'Cancelled by staff' : 'Cancelled by client';
-    case 'attended':
-      return 'Attended';
-    case 'no_show':
-      return 'No-show';
-  }
 }
 
 function reasonText(reason: AtRiskReason): string {
