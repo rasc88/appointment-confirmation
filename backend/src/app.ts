@@ -5,6 +5,7 @@ import { createClientRouter } from './client-routes.js';
 import { readConfig } from './config.js';
 import { ApiError, errorHandler } from './errors.js';
 import { createPublicRouter } from './public-routes.js';
+import { createSettingsRouter } from './settings-routes.js';
 import { createStaffRouter } from './staff-routes.js';
 
 const checkedMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -36,6 +37,7 @@ export function createApp(options: { now?: () => Date } = {}) {
   v1.use(createStaffRouter(config));
   v1.use(createClientRouter(config));
   v1.use(createAppointmentRouter(config, now));
+  v1.use(createSettingsRouter(config, now));
   v1.use(() => {
     throw new ApiError(404, 'not_found', 'Not found.');
   });

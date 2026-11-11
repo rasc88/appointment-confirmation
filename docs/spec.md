@@ -172,7 +172,7 @@ One settings record per deployment, edited by any staff member on a **Settings**
 | Setting | Default | Allowed values | Used for |
 |---|---|---|---|
 | `businessName` | "My Business" | 1–80 characters | Client page and message |
-| `timeZone` | `UTC` | Any IANA zone, for example `Europe/Madrid` | Dashboard day, all displayed times |
+| `timeZone` | `UTC` | Allowed values: `UTC` or a zone in `Intl.supportedValuesOf('timeZone')`, case-sensitive, for example `Europe/Madrid` | Dashboard day, all displayed times |
 | `noReplyWindowHours` | 24 | 1–168 | "No reply yet" rule |
 | `noShowThreshold` | 1 | 1–10 | "Missed N before" rule |
 | `noShowLookbackDays` | 180 | 7–730 | "Missed N before" rule |
