@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { Route, Routes } from 'react-router';
+import { Outlet, Route, Routes } from 'react-router';
 import { AuthProvider } from './auth/auth-context';
 import { RequireStaff } from './auth/RequireStaff';
+import { ClientAppointmentPage } from './pages/ClientAppointmentPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { SignInPage } from './pages/SignInPage';
@@ -17,17 +18,16 @@ function staffPage(page: ReactNode) {
 
 export function App() {
   return (
-    <AuthProvider>
-      <Routes>
+    <Routes>
+      <Route path="/c/:token" element={<ClientAppointmentPage />} />
+      <Route
+        element={
+          <AuthProvider>
+            <Outlet />
+          </AuthProvider>
+        }
+      >
         <Route path="/sign-in" element={<SignInPage />} />
-        <Route
-          path="/c/:token"
-          element={
-            <main>
-              <PlaceholderPage title="Your appointment" />
-            </main>
-          }
-        />
         <Route path="/" element={staffPage(<PlaceholderPage title="Dashboard" />)} />
         <Route path="/appointments/new" element={staffPage(<PlaceholderPage title="New appointment" />)} />
         <Route path="/appointments/:id/edit" element={staffPage(<PlaceholderPage title="Edit appointment" />)} />
@@ -35,7 +35,7 @@ export function App() {
         <Route path="/settings" element={staffPage(<PlaceholderPage title="Settings" />)} />
         <Route path="/staff" element={staffPage(<PlaceholderPage title="Staff" />)} />
         <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-    </AuthProvider>
+      </Route>
+    </Routes>
   );
 }

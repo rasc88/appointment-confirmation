@@ -156,7 +156,7 @@ describe('App', () => {
   it('shows the client page signed out, without the staff header', async () => {
     renderApp('/c/demo-1');
 
-    expect(await screen.findByRole('heading', { name: 'Your appointment' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Demo Studio' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
   });
 

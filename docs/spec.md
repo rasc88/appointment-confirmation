@@ -95,7 +95,7 @@ sequenceDiagram
 Staff pick an existing client or create a new one (name, optional phone), choose the staff member, enter the service name, start time, and duration (pre-filled with the default duration from settings). The app creates the appointment in `pending` status with a fresh confirmation token and shows a **Copy link** button and a **Copy message** button. The message is built from the message template in settings, so each business can use its own wording and language.
 
 ### 5.2 Client Confirms or Cancels
-The client opens `/c/{token}`. If the appointment is `pending`, they see **Confirm** and **Cancel**. If already `confirmed`, they see the confirmation and a **Cancel** option. Cancelling asks for a second tap to prevent accidents. After the appointment start time, the link shows a read-only "this appointment has passed" page.
+The client opens `/c/{token}`. If the appointment is `pending`, they see **Confirm** and **Cancel**. If already `confirmed`, they see the confirmation and a **Cancel** option. Cancelling asks for a second tap to prevent accidents: the first tap shows a **Cancel this appointment?** prompt with **Keep appointment** and **Yes, cancel it**, and the prompt has no timeout. A cancelled appointment shows a cancelled page with no actions, whoever cancelled it. After the appointment start time, the link shows a read-only "this appointment has passed" page. If a confirm or cancel is rejected with `409` because the appointment changed meanwhile, the page reloads the appointment, shows its current state, and says the answer was not saved.
 
 ### 5.3 Daily Dashboard
 Staff open the dashboard, which defaults to today in the business time zone. Appointments are grouped as **At risk**, **Pending**, **Confirmed**, **Cancelled**, and **Completed** (attended or no-show), each sorted by start time. A date picker and a staff filter narrow the view. The page polls for updates every 30 seconds.
@@ -220,6 +220,7 @@ Placeholders: `{client}`, `{business}`, `{service}`, `{staff}`, `{date}`, `{time
 - **Client page:** mobile-first, a single card with the appointment details and large buttons. No navigation, no sign-in prompt.
 - **Staff dashboard:** works from 360 px wide. On narrow screens the groups stack as collapsible sections, and on desktop they show as a list with a sticky header for date and filters.
 - Times are always shown in the business time zone, with the zone named on the client page (for example "10:30, Europe/Madrid").
+- The client page spells out the date, for example "Tuesday, 10 November 2026", in `en-GB` and the business time zone (decision 22).
 
 ---
 
@@ -403,6 +404,8 @@ Sign-out (`POST /auth/logout`) needs no valid session and always returns `204`, 
 | POST | `/public/appointments/{token}/cancel` | Cancel |
 
 Unknown or invalidated tokens return `404`, never a hint about whether the appointment exists.
+
+A client confirm or cancel on a `cancelled`, `attended` or `no_show` appointment is `409 invalid_transition`, even after the start time. `409 appointment_started` applies only to `pending` and `confirmed` appointments whose start time has passed.
 
 ### 12.3 Operations
 | Method | Path | Purpose |
