@@ -11,10 +11,16 @@ const hourMs = 60 * 60 * 1000;
 const dayMs = 24 * hourMs;
 /** Covers every zone's UTC offset, so no offset maths is needed to bound the query. */
 const maxZoneOffsetMs = 14 * hourMs;
+const earliestQueryMs = Date.parse('0001-01-01T00:00:00Z');
 const dateSchema = z.iso.date();
 
 function dateInZone(instant: Date, timeZone: string) {
   return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone }).format(instant);
+}
+
+/** Prisma rejects a `DateTime` before year 1, which the window of `0000-01-01` or `0001-01-01` reaches. */
+function toQueryDate(ms: number) {
+  return new Date(Math.max(ms, earliestQueryMs));
 }
 
 function readDate(date: unknown) {
@@ -60,7 +66,7 @@ export async function getDayView(query: Record<string, unknown>, now: Date) {
   const dayStartMs = Date.parse(`${day}T00:00:00Z`);
   const candidates = await prisma.appointment.findMany({
     where: {
-      startsAt: { gte: new Date(dayStartMs - maxZoneOffsetMs), lt: new Date(dayStartMs + dayMs + maxZoneOffsetMs) },
+      startsAt: { gte: toQueryDate(dayStartMs - maxZoneOffsetMs), lt: toQueryDate(dayStartMs + dayMs + maxZoneOffsetMs) },
       staffMemberId: staffId,
     },
     include: appointmentInclude,

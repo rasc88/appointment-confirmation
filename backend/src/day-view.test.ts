@@ -124,6 +124,10 @@ describe('request', () => {
     expect((await dayView('?date=2028-02-29')).date).toBe('2028-02-29');
   });
 
+  it.each(['0000-01-01', '0001-01-01', '0001-01-02', '9999-12-31'])('returns an empty day for %s', async (date) => {
+    expect(await dayView(`?date=${date}`)).toEqual({ date, timeZone: 'Europe/Madrid', appointments: [] });
+  });
+
   it.each(['staffId=abc', 'staffId=', `staffId=${unknownId}&staffId=${unknownId}`])(
     'rejects ?%s as a malformed staff id',
     async (query) => {
