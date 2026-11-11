@@ -322,3 +322,80 @@ select {
   overflow-wrap: anywhere;
   user-select: text;
 }
+
+.settings-page,
+.staff-page {
+  max-width: 640px;
+}
+
+.settings-form,
+.add-staff,
+.staff-list {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.settings-form select {
+  max-width: 100%;
+}
+
+textarea {
+  font: inherit;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #9aa0a6;
+  border-radius: 6px;
+}
+
+textarea[aria-invalid='true'],
+select[aria-invalid='true'] {
+  border-color: #b3261e;
+}
+
+.add-staff h2 {
+  margin-top: 0;
+}
+
+.staff-list {
+  margin-top: 0;
+  list-style: none;
+}
+
+.staff-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 0;
+  overflow-wrap: anywhere;
+}
+
+.staff-row + .staff-row {
+  border-top: 1px solid #dadce0;
+}
+
+.staff-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.staff-row-name {
+  font-weight: 600;
+}
+
+.staff-prompt {
+  flex: 1 1 100%;
+}
+
+.staff-prompt p {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
