@@ -116,6 +116,12 @@ still rejects a late action with `409`.
 Why: a card in two groups double-counts and invites two different actions
 on one appointment.
 
+The dashboard's actions follow the group. Once an appointment has started
+it offers only Attended and No-show, not Cancel, although the contract
+(and #39) allow a staff cancel after the start. Why: after the start the
+outcome is what is left to record, and a cancel then would hide a no-show
+from the client's history (repository owner's call, recorded on #32).
+
 ### 24. Start times are typed as wall-clock time in the business time zone
 
 The appointment form reads its `datetime-local` value in

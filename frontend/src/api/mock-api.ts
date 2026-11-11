@@ -13,6 +13,7 @@ import type {
   CreateStaffMemberRequest,
   DayAppointment,
   DayView,
+  OutcomeRequest,
   PublicAppointment,
   StaffMember,
   UpdateSettingsRequest,
@@ -24,6 +25,8 @@ function toStaffMember({ id, name, email, isActive, createdAt }: DemoStaffMember
 }
 
 const closedStatuses = new Set<AppointmentStatus>(['cancelled', 'attended', 'no_show']);
+
+const hourMs = 3_600_000;
 
 function hasStarted(appointment: DemoAppointment, now: Date): boolean {
   return now.getTime() >= Date.parse(appointment.startsAt);
@@ -57,6 +60,25 @@ function assertClientCanChange(appointment: DemoAppointment, now: Date) {
   if (hasStarted(appointment, now)) {
     throw new ApiError(409, 'appointment_started', 'This appointment has already started.');
   }
+}
+
+function invalidTransition(): ApiError {
+  return new ApiError(409, 'invalid_transition', 'This appointment can no longer be changed.');
+}
+
+function setStatus(appointment: DemoAppointment, status: AppointmentStatus, now: Date) {
+  appointment.status = status;
+  appointment.statusChangedAt = now.toISOString();
+  appointment.updatedAt = now.toISOString();
+}
+
+/** The contract's rule: less than `lateCancellationHours` before the start, or after it, is late; 0 turns it off. */
+function cancel(store: DemoData, appointment: DemoAppointment, actor: 'client' | 'staff', now: Date) {
+  const { lateCancellationHours } = store.settings;
+  setStatus(appointment, 'cancelled', now);
+  appointment.cancelledBy = actor;
+  appointment.isLateCancellation =
+    lateCancellationHours > 0 && Date.parse(appointment.startsAt) - now.getTime() < lateCancellationHours * hourMs;
 }
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -230,11 +252,71 @@ function createAppointment(store: DemoData, body: CreateAppointmentRequest, now:
   };
 }
 
-function getAppointment(store: DemoData, id: string): Appointment {
+function findAppointment(store: DemoData, id: string): DemoAppointment {
   const appointment = store.appointments.find((entry) => entry.id === id);
   if (!appointment) {
     throw new ApiError(404, 'not_found', 'Not found.');
   }
+  return appointment;
+}
+
+function getAppointment(store: DemoData, id: string): Appointment {
+  return toAppointment(store, findAppointment(store, id));
+}
+
+/** Same checks, order and messages as #39: state, then start time, then body (decision 28). */
+function confirmAppointment(store: DemoData, id: string, now: Date): Appointment {
+  const appointment = findAppointment(store, id);
+  if (appointment.status === 'confirmed') {
+    return toAppointment(store, appointment);
+  }
+  if (closedStatuses.has(appointment.status)) {
+    throw invalidTransition();
+  }
+  if (hasStarted(appointment, now)) {
+    throw new ApiError(409, 'appointment_started', 'This appointment has already started.');
+  }
+  setStatus(appointment, 'confirmed', now);
+  appointment.confirmedBy = 'staff';
+  return toAppointment(store, appointment);
+}
+
+function cancelAppointment(store: DemoData, id: string, now: Date): Appointment {
+  const appointment = findAppointment(store, id);
+  if (closedStatuses.has(appointment.status)) {
+    throw invalidTransition();
+  }
+  cancel(store, appointment, 'staff', now);
+  return toAppointment(store, appointment);
+}
+
+const outcomes: unknown[] = ['attended', 'no_show'];
+
+function recordAppointmentOutcome(store: DemoData, id: string, body: OutcomeRequest, now: Date): Appointment {
+  const appointment = findAppointment(store, id);
+  if (closedStatuses.has(appointment.status)) {
+    throw invalidTransition();
+  }
+  if (!hasStarted(appointment, now)) {
+    throw new ApiError(409, 'appointment_not_started', 'This appointment has not started yet.');
+  }
+  if (!outcomes.includes(body.outcome)) {
+    throw validationError('Choose attended or no-show.', 'outcome');
+  }
+  const unknownField = Object.keys(body).find((key) => key !== 'outcome');
+  if (unknownField !== undefined) {
+    throw validationError('Unknown field.', unknownField);
+  }
+  setStatus(appointment, body.outcome, now);
+  return toAppointment(store, appointment);
+}
+
+function undoAppointmentOutcome(store: DemoData, id: string, now: Date): Appointment {
+  const appointment = findAppointment(store, id);
+  if (appointment.status !== 'attended' && appointment.status !== 'no_show') {
+    throw invalidTransition();
+  }
+  setStatus(appointment, appointment.confirmedBy ? 'confirmed' : 'pending', now);
   return toAppointment(store, appointment);
 }
 
@@ -430,10 +512,22 @@ export function createMockApi(options?: { now?: Date }): ApiService {
       return getAppointment(store, id);
     },
     updateAppointment: () => notImplemented('updateAppointment'),
-    confirmAppointment: () => notImplemented('confirmAppointment'),
-    cancelAppointment: () => notImplemented('cancelAppointment'),
-    recordAppointmentOutcome: () => notImplemented('recordAppointmentOutcome'),
-    undoAppointmentOutcome: () => notImplemented('undoAppointmentOutcome'),
+    async confirmAppointment(id) {
+      assertSignedIn();
+      return confirmAppointment(store, id, currentTime());
+    },
+    async cancelAppointment(id) {
+      assertSignedIn();
+      return cancelAppointment(store, id, currentTime());
+    },
+    async recordAppointmentOutcome(id, body) {
+      assertSignedIn();
+      return recordAppointmentOutcome(store, id, body, currentTime());
+    },
+    async undoAppointmentOutcome(id) {
+      assertSignedIn();
+      return undoAppointmentOutcome(store, id, currentTime());
+    },
     regenerateAppointmentLink: () => notImplemented('regenerateAppointmentLink'),
     async getSettings() {
       assertSignedIn();
@@ -451,10 +545,8 @@ export function createMockApi(options?: { now?: Date }): ApiService {
       const now = currentTime();
       assertClientCanChange(appointment, now);
       if (appointment.status === 'pending') {
-        appointment.status = 'confirmed';
+        setStatus(appointment, 'confirmed', now);
         appointment.confirmedBy = 'client';
-        appointment.statusChangedAt = now.toISOString();
-        appointment.updatedAt = now.toISOString();
       }
       return toPublicAppointment(store, appointment, now);
     },
@@ -462,10 +554,7 @@ export function createMockApi(options?: { now?: Date }): ApiService {
       const appointment = findByToken(store, token);
       const now = currentTime();
       assertClientCanChange(appointment, now);
-      appointment.status = 'cancelled';
-      appointment.cancelledBy = 'client';
-      appointment.statusChangedAt = now.toISOString();
-      appointment.updatedAt = now.toISOString();
+      cancel(store, appointment, 'client', now);
       return toPublicAppointment(store, appointment, now);
     },
   };

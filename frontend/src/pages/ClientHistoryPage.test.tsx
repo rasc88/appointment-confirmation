@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
 import { MemoryRouter, useNavigate } from 'react-router';
@@ -87,8 +87,8 @@ describe('ClientHistoryPage loading', () => {
     vi.spyOn(api, 'getSettings').mockReturnValue(pending.promise);
     renderPage(api, `/clients/${clientId('Felix Novak')}`);
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Loading…');
-    expect(getClient).toHaveBeenCalledWith(clientId('Felix Novak'));
+    await waitFor(() => expect(getClient).toHaveBeenCalledWith(clientId('Felix Novak')));
+    expect(screen.getByRole('status')).toHaveTextContent('Loading…');
 
     pending.resolve(settings);
 

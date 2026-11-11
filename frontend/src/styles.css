@@ -223,6 +223,19 @@ select {
   color: #8c1d18;
 }
 
+.appointment button {
+  min-height: 44px;
+  padding: 4px 12px;
+}
+
+.cancel-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-weight: 600;
+}
+
 @media (min-width: 768px) {
   .dashboard-bar {
     position: sticky;

@@ -127,20 +127,20 @@ describe('DashboardPage day view', () => {
       expect(details.open).toBe(true);
     }
     expect(itemsIn('At risk')).toEqual([
-      ['13:00', '30 min', 'Ana Torres', 'Haircut', 'with Alex', 'Pending', 'No reply yet', 'Edit'],
-      ['16:00', '45 min', 'Felix Novak', 'Manicure', 'with Alex', 'Pending', 'No reply yet', 'Missed 2 before', 'Edit'],
+      ['13:00', '30 min', 'Ana Torres', 'Haircut', 'with Alex', 'Pending', 'No reply yet', 'Edit', 'Confirm', 'Cancel'],
+      ['16:00', '45 min', 'Felix Novak', 'Manicure', 'with Alex', 'Pending', 'No reply yet', 'Missed 2 before', 'Edit', 'Confirm', 'Cancel'],
     ]);
     expect(groupElement('Pending')).toHaveTextContent('No appointments.');
     expect(itemsIn('Confirmed')).toEqual([
-      ['14:00', '90 min', 'Chloe Martin', 'Colour', 'with Alex', 'Confirmed by client', 'Edit'],
+      ['14:00', '90 min', 'Chloe Martin', 'Colour', 'with Alex', 'Confirmed by client', 'Edit', 'Cancel'],
     ]);
     expect(itemsIn('Cancelled')).toEqual([
       ['15:00', '45 min', 'Grace Lee', 'Manicure', 'with Alex', 'Cancelled by client', 'Late cancellation'],
     ]);
-    expect(itemsIn('Needs outcome')).toEqual([['10:00', '30 min', 'Ben Carter', 'Haircut', 'with Alex', 'Pending']]);
+    expect(itemsIn('Needs outcome')).toEqual([['10:00', '30 min', 'Ben Carter', 'Haircut', 'with Alex', 'Pending', 'Attended', 'No-show']]);
     expect(itemsIn('Completed')).toEqual([
-      ['08:00', '30 min', 'Grace Lee', 'Haircut', 'with Sam', 'Attended'],
-      ['09:00', '60 min', 'Elena Sousa', 'Colour', 'with Alex', 'No-show'],
+      ['08:00', '30 min', 'Grace Lee', 'Haircut', 'with Sam', 'Attended', 'Undo'],
+      ['09:00', '60 min', 'Elena Sousa', 'Colour', 'with Alex', 'No-show', 'Undo'],
     ]);
     expect(screen.queryByText('No appointments on this day.')).not.toBeInTheDocument();
   });
@@ -173,11 +173,11 @@ describe('DashboardPage day view', () => {
       'Completed (0)',
     ]);
     expect(itemsIn('At risk')).toEqual([
-      ['12:00', '30 min', 'Elena Sousa', 'Haircut', 'with Sam', 'Confirmed by client', 'Missed 1 before', 'Edit'],
+      ['12:00', '30 min', 'Elena Sousa', 'Haircut', 'with Sam', 'Confirmed by client', 'Missed 1 before', 'Edit', 'Cancel'],
     ]);
-    expect(itemsIn('Pending')).toEqual([['13:00', '60 min', 'Ben Carter', 'Massage', 'with Sam', 'Pending', 'Edit']]);
+    expect(itemsIn('Pending')).toEqual([['13:00', '60 min', 'Ben Carter', 'Massage', 'with Sam', 'Pending', 'Edit', 'Confirm', 'Cancel']]);
     expect(itemsIn('Confirmed')).toEqual([
-      ['14:00', '30 min', 'David Ruiz', 'Haircut', 'with Sam', 'Confirmed by staff', 'Edit'],
+      ['14:00', '30 min', 'David Ruiz', 'Haircut', 'with Sam', 'Confirmed by staff', 'Edit', 'Cancel'],
     ]);
     expect(itemsIn('Cancelled')).toEqual([['15:00', '60 min', 'Hugo Blanc', 'Massage', 'with Sam', 'Cancelled by staff']]);
   });
@@ -188,7 +188,7 @@ describe('DashboardPage day view', () => {
     chooseDate('2026-10-21');
     await flush();
 
-    expect(itemsIn('Completed')).toEqual([['12:00', '60 min', 'Felix Novak', 'Massage', 'with Alex', 'No-show']]);
+    expect(itemsIn('Completed')).toEqual([['12:00', '60 min', 'Felix Novak', 'Massage', 'with Alex', 'No-show', 'Undo']]);
     expect(allItems()).toHaveLength(1);
   });
 
@@ -214,7 +214,7 @@ describe('DashboardPage day view', () => {
 
     await renderDashboard(api);
 
-    expect(itemsIn('Needs outcome')).toEqual([['10:00', '30 min', 'Ben Carter', 'Haircut', 'with Alex', 'Pending']]);
+    expect(itemsIn('Needs outcome')).toEqual([['10:00', '30 min', 'Ben Carter', 'Haircut', 'with Alex', 'Pending', 'Attended', 'No-show']]);
     expect(itemsIn('At risk')).toHaveLength(2);
   });
 });
@@ -258,7 +258,7 @@ describe('DashboardPage filters', () => {
     await flush();
     expect(getDayView).toHaveBeenLastCalledWith({ staffId: sam.id });
     expect(allItems()).toHaveLength(1);
-    expect(itemsIn('Completed')).toEqual([['08:00', '30 min', 'Grace Lee', 'Haircut', 'with Sam', 'Attended']]);
+    expect(itemsIn('Completed')).toEqual([['08:00', '30 min', 'Grace Lee', 'Haircut', 'with Sam', 'Attended', 'Undo']]);
 
     chooseStaff('Alex');
     await flush();
@@ -414,11 +414,11 @@ describe('DashboardPage refresh', () => {
     await advance(30_000);
 
     expect(itemsIn('At risk')).toEqual([
-      ['16:00', '45 min', 'Felix Novak', 'Manicure', 'with Alex', 'Pending', 'No reply yet', 'Missed 2 before', 'Edit'],
+      ['16:00', '45 min', 'Felix Novak', 'Manicure', 'with Alex', 'Pending', 'No reply yet', 'Missed 2 before', 'Edit', 'Confirm', 'Cancel'],
     ]);
     expect(itemsIn('Confirmed')).toEqual([
-      ['13:00', '30 min', 'Ana Torres', 'Haircut', 'with Alex', 'Confirmed by client', 'Edit'],
-      ['14:00', '90 min', 'Chloe Martin', 'Colour', 'with Alex', 'Confirmed by client', 'Edit'],
+      ['13:00', '30 min', 'Ana Torres', 'Haircut', 'with Alex', 'Confirmed by client', 'Edit', 'Cancel'],
+      ['14:00', '90 min', 'Chloe Martin', 'Colour', 'with Alex', 'Confirmed by client', 'Edit', 'Cancel'],
     ]);
   });
 
@@ -507,5 +507,462 @@ describe('DashboardPage refresh', () => {
     await advance(90_000);
 
     expect(listStaff).toHaveBeenCalledTimes(1);
+  });
+});
+
+function itemFor(group: string, clientName: string): HTMLElement {
+  const item = Array.from(groupElement(group).querySelectorAll('li')).find(
+    (entry) => entry.querySelector('.appointment-client')?.textContent === clientName,
+  );
+  if (!item) {
+    throw new Error(`No ${clientName} under ${group}`);
+  }
+  return item;
+}
+
+function buttonNames(item: HTMLElement) {
+  return within(item).queryAllByRole('button').map((button) => button.textContent);
+}
+
+function buttonIn(group: string, clientName: string, name: string) {
+  return within(itemFor(group, clientName)).getByRole('button', { name });
+}
+
+function clientLink(group: string, clientName: string) {
+  return itemFor(group, clientName).querySelector('.appointment-client');
+}
+
+function appointmentButtons() {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('li.appointment button'));
+}
+
+async function appointmentId(api: ApiService, clientName: string) {
+  const { appointments } = await api.getDayView({});
+  return appointments.find((appointment) => appointment.client.name === clientName)!.id;
+}
+
+function openCancelPrompt(group: string, clientName: string) {
+  fireEvent.click(buttonIn(group, clientName, 'Cancel'));
+}
+
+describe('DashboardPage action buttons', () => {
+  it('offers the buttons of each group', async () => {
+    await renderDashboard(await createSignedInApi());
+
+    expect(buttonNames(itemFor('At risk', 'Ana Torres'))).toEqual(['Confirm', 'Cancel']);
+    expect(buttonNames(itemFor('Confirmed', 'Chloe Martin'))).toEqual(['Cancel']);
+    expect(buttonNames(itemFor('Needs outcome', 'Ben Carter'))).toEqual(['Attended', 'No-show']);
+    expect(buttonNames(itemFor('Completed', 'Elena Sousa'))).toEqual(['Undo']);
+    expect(buttonNames(itemFor('Completed', 'Grace Lee'))).toEqual(['Undo']);
+    expect(buttonNames(itemFor('Cancelled', 'Grace Lee'))).toEqual([]);
+  });
+
+  it('confirms on one tap and shows the appointment as confirmed by staff, focusing its client', async () => {
+    const api = await createSignedInApi();
+    const anaId = await appointmentId(api, 'Ana Torres');
+    const confirmAppointment = vi.spyOn(api, 'confirmAppointment');
+    await renderDashboard(api);
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    expect(screen.queryByText('Loading appointments…')).not.toBeInTheDocument();
+    await flush();
+
+    expect(confirmAppointment).toHaveBeenCalledTimes(1);
+    expect(confirmAppointment).toHaveBeenCalledWith(anaId);
+    expect(itemsIn('Confirmed')[0]).toEqual(['13:00', '30 min', 'Ana Torres', 'Haircut', 'with Alex', 'Confirmed by staff', 'Edit', 'Cancel']);
+    expect(document.activeElement).toBe(clientLink('Confirmed', 'Ana Torres'));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('asks before cancelling, and Keep appointment puts focus back on Cancel', async () => {
+    const api = await createSignedInApi();
+    const cancelAppointment = vi.spyOn(api, 'cancelAppointment');
+    await renderDashboard(api);
+
+    openCancelPrompt('Confirmed', 'Chloe Martin');
+
+    const chloe = itemFor('Confirmed', 'Chloe Martin');
+    expect(within(chloe).getByText('Cancel this appointment?')).toBeInTheDocument();
+    expect(buttonNames(chloe)).toEqual(['Keep appointment', 'Yes, cancel it']);
+    expect(document.activeElement).toBe(within(chloe).getByRole('button', { name: 'Keep appointment' }));
+
+    fireEvent.click(within(chloe).getByRole('button', { name: 'Keep appointment' }));
+
+    expect(buttonNames(chloe)).toEqual(['Cancel']);
+    expect(document.activeElement).toBe(buttonIn('Confirmed', 'Chloe Martin', 'Cancel'));
+    expect(cancelAppointment).not.toHaveBeenCalled();
+  });
+
+  it('cancels on Yes, cancel it and shows a late staff cancellation', async () => {
+    const api = await createSignedInApi();
+    await renderDashboard(api);
+
+    openCancelPrompt('Confirmed', 'Chloe Martin');
+    fireEvent.click(buttonIn('Confirmed', 'Chloe Martin', 'Yes, cancel it'));
+    await flush();
+
+    expect(itemsIn('Cancelled')).toEqual([
+      ['14:00', '90 min', 'Chloe Martin', 'Colour', 'with Alex', 'Cancelled by staff', 'Late cancellation'],
+      ['15:00', '45 min', 'Grace Lee', 'Manicure', 'with Alex', 'Cancelled by client', 'Late cancellation'],
+    ]);
+    expect(document.activeElement).toBe(clientLink('Cancelled', 'Chloe Martin'));
+  });
+
+  it('keeps at most one prompt open, and another action closes it', async () => {
+    await renderDashboard(await createSignedInApi());
+
+    openCancelPrompt('Confirmed', 'Chloe Martin');
+    openCancelPrompt('At risk', 'Ana Torres');
+
+    expect(buttonNames(itemFor('Confirmed', 'Chloe Martin'))).toEqual(['Cancel']);
+    expect(buttonNames(itemFor('At risk', 'Ana Torres'))).toEqual(['Keep appointment', 'Yes, cancel it']);
+
+    fireEvent.click(buttonIn('Needs outcome', 'Ben Carter', 'Attended'));
+    await flush();
+
+    expect(screen.queryByText('Cancel this appointment?')).not.toBeInTheDocument();
+    expect(buttonNames(itemFor('At risk', 'Ana Torres'))).toEqual(['Confirm', 'Cancel']);
+  });
+
+  it.each([
+    ['No-show', 'No-show'],
+    ['Attended', 'Attended'],
+  ])('records %s on Ben Carter and moves him to Completed', async (button, statusText) => {
+    await renderDashboard(await createSignedInApi());
+
+    fireEvent.click(buttonIn('Needs outcome', 'Ben Carter', button));
+    await flush();
+
+    expect(itemsIn('Completed')).toContainEqual(['10:00', '30 min', 'Ben Carter', 'Haircut', 'with Alex', statusText, 'Undo']);
+    expect(groupElement('Needs outcome')).toHaveTextContent('No appointments.');
+    expect(document.activeElement).toBe(clientLink('Completed', 'Ben Carter'));
+  });
+
+  it('undoes Elena Sousa’s no-show back to Needs outcome as pending', async () => {
+    await renderDashboard(await createSignedInApi());
+
+    fireEvent.click(buttonIn('Completed', 'Elena Sousa', 'Undo'));
+    await flush();
+
+    expect(itemsIn('Needs outcome')).toContainEqual(['09:00', '60 min', 'Elena Sousa', 'Colour', 'with Alex', 'Pending', 'Attended', 'No-show']);
+    expect(document.activeElement).toBe(clientLink('Needs outcome', 'Elena Sousa'));
+  });
+});
+
+describe('DashboardPage action in progress', () => {
+  it.each([
+    ['confirmAppointment', 'At risk', 'Ana Torres', 'Confirm', 'Confirming…'],
+    ['recordAppointmentOutcome', 'Needs outcome', 'Ben Carter', 'Attended', 'Saving…'],
+    ['recordAppointmentOutcome', 'Needs outcome', 'Ben Carter', 'No-show', 'Saving…'],
+    ['undoAppointmentOutcome', 'Completed', 'Elena Sousa', 'Undo', 'Undoing…'],
+  ] as const)('%s: disables every action button and labels the pressed one', async (method, group, clientName, button, label) => {
+    const api = await createSignedInApi();
+    const request = deferred<never>();
+    vi.spyOn(api, method).mockReturnValue(request.promise);
+    await renderDashboard(api);
+
+    fireEvent.click(buttonIn(group, clientName, button));
+    await flush();
+
+    expect(buttonIn(group, clientName, label)).toBeDisabled();
+    expect(appointmentButtons().every((entry) => entry.disabled)).toBe(true);
+  });
+
+  it('labels Yes, cancel it as Cancelling… and disables the prompt', async () => {
+    const api = await createSignedInApi();
+    vi.spyOn(api, 'cancelAppointment').mockReturnValue(new Promise(() => {}));
+    await renderDashboard(api);
+
+    openCancelPrompt('Confirmed', 'Chloe Martin');
+    fireEvent.click(buttonIn('Confirmed', 'Chloe Martin', 'Yes, cancel it'));
+    await flush();
+
+    expect(buttonNames(itemFor('Confirmed', 'Chloe Martin'))).toEqual(['Keep appointment', 'Cancelling…']);
+    expect(appointmentButtons().every((entry) => entry.disabled)).toBe(true);
+  });
+
+  it.each([false, true])('sends one request for two clicks in the same task (StrictMode %s)', async (isStrict) => {
+    const api = await createSignedInApi();
+    const confirmAppointment = vi.spyOn(api, 'confirmAppointment');
+    await renderDashboard(api, { isStrict });
+
+    const confirm = buttonIn('At risk', 'Ana Torres', 'Confirm');
+    act(() => {
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+    });
+    await flush();
+
+    expect(confirmAppointment).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts as running until the day view has reloaded after it', async () => {
+    const api = await createSignedInApi();
+    const getDayView = vi.spyOn(api, 'getDayView');
+    await renderDashboard(api);
+    const reloaded = deferred<DayView>();
+    getDayView.mockReturnValueOnce(reloaded.promise);
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+
+    expect(getDayView).toHaveBeenCalledTimes(2);
+    expect(buttonIn('At risk', 'Ana Torres', 'Confirming…')).toBeDisabled();
+    expect(screen.queryByText('Loading appointments…')).not.toBeInTheDocument();
+
+    reloaded.resolve(await api.getDayView({}));
+    await flush();
+
+    expect(appointmentButtons().every((entry) => !entry.disabled)).toBe(true);
+    expect(buttonNames(itemFor('Confirmed', 'Ana Torres'))).toEqual(['Cancel']);
+  });
+});
+
+describe('DashboardPage action errors', () => {
+  it.each([
+    ['appointment_started', 'That appointment has already started. Nothing was saved.'],
+    ['appointment_not_started', 'That appointment has not started yet. Nothing was saved.'],
+    ['invalid_transition', 'That appointment had already changed. Nothing was saved.'],
+  ] as const)('reloads and explains a 409 %s', async (code, message) => {
+    const api = await createSignedInApi();
+    const getDayView = vi.spyOn(api, 'getDayView');
+    vi.spyOn(api, 'confirmAppointment').mockRejectedValue(new ApiError(409, code, 'x'));
+    await renderDashboard(api);
+    await api.confirmPublicAppointment('demo-1');
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+
+    expect(getDayView).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('Loading appointments…')).not.toBeInTheDocument();
+    expect(buttonNames(itemFor('Confirmed', 'Ana Torres'))).toEqual(['Cancel']);
+    expect(screen.getByRole('alert')).toHaveTextContent(message);
+    expect(document.querySelector('.dashboard-bar [role="alert"]')).toBe(screen.getByRole('alert'));
+  });
+
+  it('reloads after a 409 on Yes, cancel it and focuses the client', async () => {
+    const api = await createSignedInApi();
+    vi.spyOn(api, 'cancelAppointment').mockRejectedValue(new ApiError(409, 'invalid_transition', 'x'));
+    await renderDashboard(api);
+
+    openCancelPrompt('Confirmed', 'Chloe Martin');
+    fireEvent.click(buttonIn('Confirmed', 'Chloe Martin', 'Yes, cancel it'));
+    await flush();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('That appointment had already changed. Nothing was saved.');
+    expect(buttonNames(itemFor('Confirmed', 'Chloe Martin'))).toEqual(['Cancel']);
+    expect(document.activeElement).toBe(clientLink('Confirmed', 'Chloe Martin'));
+  });
+
+  it('reloads on a 404 and focuses the Date input when the appointment is gone', async () => {
+    const api = await createSignedInApi();
+    const dayView = await api.getDayView({});
+    const getDayView = vi.spyOn(api, 'getDayView');
+    vi.spyOn(api, 'confirmAppointment').mockRejectedValue(new ApiError(404, 'not_found', 'Not found.'));
+    await renderDashboard(api);
+    getDayView.mockResolvedValueOnce({
+      ...dayView,
+      appointments: dayView.appointments.filter((appointment) => appointment.client.name !== 'Ana Torres'),
+    });
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+
+    expect(getDayView).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('alert')).toHaveTextContent('That appointment no longer exists. Nothing was saved.');
+    expect(allItems()).toHaveLength(6);
+    expect(document.activeElement).toBe(screen.getByLabelText('Date'));
+  });
+
+  it.each([
+    ['a network failure', networkError],
+    ['a 500', new ApiError(500, 'internal_error', 'Something went wrong.')],
+  ])('on %s does not reload, closes the prompt, and focuses the client', async (_name, error) => {
+    const api = await createSignedInApi();
+    const getDayView = vi.spyOn(api, 'getDayView');
+    vi.spyOn(api, 'cancelAppointment').mockRejectedValue(error);
+    await renderDashboard(api);
+
+    openCancelPrompt('Confirmed', 'Chloe Martin');
+    fireEvent.click(buttonIn('Confirmed', 'Chloe Martin', 'Yes, cancel it'));
+    await flush();
+
+    expect(getDayView).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not save. Check your connection and try again.');
+    expect(buttonNames(itemFor('Confirmed', 'Chloe Martin'))).toEqual(['Cancel']);
+    expect(appointmentButtons().every((entry) => !entry.disabled)).toBe(true);
+    expect(document.activeElement).toBe(clientLink('Confirmed', 'Chloe Martin'));
+  });
+
+  it('signs out on a 401 from the action', async () => {
+    const api = await createSignedInApi();
+    vi.spyOn(api, 'confirmAppointment').mockRejectedValue(new ApiError(401, 'unauthenticated', 'Sign in to continue.'));
+    await renderDashboard(api);
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+
+    expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
+  it('signs out on a 401 from the reload after the action', async () => {
+    const api = await createSignedInApi();
+    const getDayView = vi.spyOn(api, 'getDayView');
+    await renderDashboard(api);
+    getDayView.mockRejectedValueOnce(new ApiError(401, 'unauthenticated', 'Sign in to continue.'));
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+
+    expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
+  it('keeps the view when the reload after an action fails, and the refresh carries on', async () => {
+    const api = await createSignedInApi();
+    const getDayView = vi.spyOn(api, 'getDayView');
+    await renderDashboard(api);
+    getDayView.mockRejectedValueOnce(networkError);
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+
+    expect(screen.getByRole('status')).toHaveTextContent('Could not refresh. Trying again in 30 seconds.');
+    expect(buttonNames(itemFor('At risk', 'Ana Torres'))).toEqual(['Confirm', 'Cancel']);
+    expect(appointmentButtons().every((entry) => !entry.disabled)).toBe(true);
+    expect(document.activeElement).toBe(clientLink('At risk', 'Ana Torres'));
+
+    await advance(30_000);
+
+    expect(getDayView).toHaveBeenCalledTimes(3);
+    expect(buttonNames(itemFor('Confirmed', 'Ana Torres'))).toEqual(['Cancel']);
+    expect(screen.queryByText('Could not refresh. Trying again in 30 seconds.')).not.toBeInTheDocument();
+  });
+
+  it('clears the alert when the next action starts', async () => {
+    const api = await createSignedInApi();
+    const confirmAppointment = vi.spyOn(api, 'confirmAppointment').mockRejectedValue(networkError);
+    await renderDashboard(api);
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+
+    confirmAppointment.mockReturnValueOnce(new Promise(() => {}));
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('clears the alert when a prompt opens or a filter changes', async () => {
+    const api = await createSignedInApi();
+    vi.spyOn(api, 'confirmAppointment').mockRejectedValue(networkError);
+    await renderDashboard(api);
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+    openCancelPrompt('Confirmed', 'Chloe Martin');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    chooseDate('2026-11-11');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await flush();
+
+    fireEvent.click(buttonIn('Pending', 'Ben Carter', 'Confirm'));
+    await flush();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    chooseStaff('Sam');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('DashboardPage refresh with actions', () => {
+  it('keeps an open prompt and its focus through a refresh while the appointment can still be cancelled', async () => {
+    const api = await createSignedInApi();
+    const getDayView = vi.spyOn(api, 'getDayView');
+    await renderDashboard(api);
+
+    openCancelPrompt('Confirmed', 'Chloe Martin');
+    await advance(30_000);
+
+    expect(getDayView).toHaveBeenCalledTimes(2);
+    expect(buttonNames(itemFor('Confirmed', 'Chloe Martin'))).toEqual(['Keep appointment', 'Yes, cancel it']);
+    expect(document.activeElement).toBe(buttonIn('Confirmed', 'Chloe Martin', 'Keep appointment'));
+  });
+
+  it('closes the prompt when a refresh shows the appointment cancelled, and focuses the client', async () => {
+    const api = await createSignedInApi();
+    await renderDashboard(api);
+
+    openCancelPrompt('Confirmed', 'Chloe Martin');
+    await api.cancelPublicAppointment('demo-3');
+    await advance(30_000);
+
+    expect(itemsIn('Cancelled')[0]).toEqual(['14:00', '90 min', 'Chloe Martin', 'Colour', 'with Alex', 'Cancelled by client', 'Late cancellation']);
+    expect(screen.queryByText('Cancel this appointment?')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(clientLink('Cancelled', 'Chloe Martin'));
+  });
+
+  it('focuses the Date input when a refresh drops the appointment the prompt was on', async () => {
+    const api = await createSignedInApi();
+    const dayView = await api.getDayView({});
+    const getDayView = vi.spyOn(api, 'getDayView');
+    await renderDashboard(api);
+    getDayView.mockResolvedValueOnce({
+      ...dayView,
+      appointments: dayView.appointments.filter((appointment) => appointment.client.name !== 'Chloe Martin'),
+    });
+
+    openCancelPrompt('Confirmed', 'Chloe Martin');
+    await advance(30_000);
+
+    expect(groupElement('Confirmed')).toHaveTextContent('No appointments.');
+    expect(document.activeElement).toBe(screen.getByLabelText('Date'));
+
+    await advance(30_000);
+
+    expect(buttonNames(itemFor('Confirmed', 'Chloe Martin'))).toEqual(['Cancel']);
+  });
+
+  it('skips a refresh that comes due during an action, and restarts the cycle after the reload', async () => {
+    const api = await createSignedInApi();
+    const anaId = await appointmentId(api, 'Ana Torres');
+    const getDayView = vi.spyOn(api, 'getDayView');
+    const request = deferred<Awaited<ReturnType<ApiService['confirmAppointment']>>>();
+    const confirmAppointment = vi.spyOn(api, 'confirmAppointment').mockReturnValueOnce(request.promise);
+    await renderDashboard(api);
+
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await advance(45_000);
+    expect(getDayView).toHaveBeenCalledTimes(1);
+
+    confirmAppointment.mockRestore();
+    request.resolve(await api.confirmAppointment(anaId));
+    await flush();
+    expect(getDayView).toHaveBeenCalledTimes(2);
+
+    await advance(29_900);
+    expect(getDayView).toHaveBeenCalledTimes(2);
+    await advance(100);
+    expect(getDayView).toHaveBeenCalledTimes(3);
+  });
+
+  it('ignores a refresh response requested before the action once its reload has started', async () => {
+    const api = await createSignedInApi();
+    const before = await api.getDayView({});
+    const getDayView = vi.spyOn(api, 'getDayView');
+    await renderDashboard(api);
+    const staleRefresh = deferred<DayView>();
+    getDayView.mockReturnValueOnce(staleRefresh.promise);
+
+    await advance(30_000);
+    fireEvent.click(buttonIn('At risk', 'Ana Torres', 'Confirm'));
+    await flush();
+    staleRefresh.resolve(before);
+    await flush();
+
+    expect(getDayView).toHaveBeenCalledTimes(3);
+    expect(buttonNames(itemFor('Confirmed', 'Ana Torres'))).toEqual(['Cancel']);
   });
 });

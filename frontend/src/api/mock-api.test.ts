@@ -10,8 +10,8 @@ vi.mock('./demo-data', { spy: true });
 const now = new Date('2026-11-10T10:07:00Z');
 
 /** The store the mock was built from, so tests can check fields `PublicAppointment` leaves out. */
-function createMockApiWithStore() {
-  const api = createMockApi({ now });
+function createMockApiWithStore(options: { now?: Date } = { now }) {
+  const api = createMockApi(options);
   const store = vi.mocked(buildDemoData).mock.results.at(-1)?.value as DemoData;
   const byToken = (token: string) => store.appointments.find((appointment) => appointment.token === token)!;
   return { api, byToken, store };
@@ -1189,5 +1189,298 @@ describe('createMockApi updateStaffMember', () => {
       status: 401,
       code: 'unauthenticated',
     });
+  });
+});
+
+describe('createMockApi staff appointment actions', () => {
+  async function signedInWithStore() {
+    const { api, byToken, store } = createMockApiWithStore();
+    await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+    const idOf = (token: string) => byToken(token).id;
+    return { api, byToken, idOf, store };
+  }
+
+  const actions = [
+    ['confirmAppointment', (api: ApiService, id: string) => api.confirmAppointment(id)],
+    ['cancelAppointment', (api: ApiService, id: string) => api.cancelAppointment(id)],
+    ['recordAppointmentOutcome', (api: ApiService, id: string) => api.recordAppointmentOutcome(id, { outcome: 'attended' })],
+    ['undoAppointmentOutcome', (api: ApiService, id: string) => api.undoAppointmentOutcome(id)],
+  ] as const;
+
+  it.each(actions)('rejects %s with 401 when nobody is signed in', async (_name, send) => {
+    const { api, byToken } = createMockApiWithStore();
+
+    const error = await send(api, byToken('demo-9').id).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 401, code: 'unauthenticated', message: 'Sign in to continue.' });
+  });
+
+  it.each(actions)('rejects %s on an unknown id with 404', async (_name, send) => {
+    const { api } = await signedInWithStore();
+
+    for (const id of ['unknown', '', '00000000-0000-4000-8000-000000000000']) {
+      const error = await send(api, id).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status: 404, code: 'not_found', message: 'Not found.' });
+    }
+  });
+
+  it('rejects a bad outcome body on a cancelled appointment with 409, not 422', async () => {
+    const { api, idOf } = await signedInWithStore();
+
+    const error = await api
+      .recordAppointmentOutcome(idOf('demo-5'), { outcome: 'maybe' } as never)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ status: 409, code: 'invalid_transition' });
+  });
+
+  it('confirms a pending appointment as staff and returns a copy of the Appointment', async () => {
+    const { api, byToken, idOf } = await signedInWithStore();
+
+    const confirmed = await api.confirmAppointment(idOf('demo-1'));
+
+    expect(Object.keys(confirmed).sort()).toEqual([
+      'cancelledBy',
+      'client',
+      'confirmedBy',
+      'createdAt',
+      'durationMinutes',
+      'id',
+      'service',
+      'staffMember',
+      'startsAt',
+      'status',
+      'statusChangedAt',
+      'updatedAt',
+    ]);
+    expect(confirmed).toMatchObject({
+      id: idOf('demo-1'),
+      client: { name: 'Ana Torres' },
+      staffMember: { name: 'Alex' },
+      status: 'confirmed',
+      confirmedBy: 'staff',
+      cancelledBy: null,
+      statusChangedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+    confirmed.client.name = 'Changed';
+    expect(byToken('demo-1')).toMatchObject({ status: 'confirmed', confirmedBy: 'staff' });
+    const { appointments } = await api.getDayView({});
+    expect(appointments.find((appointment) => appointment.id === idOf('demo-1'))).toMatchObject({
+      client: { name: 'Ana Torres' },
+      status: 'confirmed',
+      confirmedBy: 'staff',
+    });
+    const client = await api.getClient(byToken('demo-1').clientId);
+    expect(client.appointments.find((appointment) => appointment.id === idOf('demo-1'))).toMatchObject({ status: 'confirmed' });
+  });
+
+  it.each([
+    ['before', '2026-11-10T13:00:00.000Z'],
+    ['after', '2026-11-10T09:00:00.000Z'],
+  ])('leaves an already confirmed appointment unchanged on confirm %s its start', async (_when, startsAt) => {
+    const { api, byToken, idOf } = await signedInWithStore();
+    byToken('demo-3').startsAt = startsAt;
+    const before = structuredClone(byToken('demo-3'));
+
+    const confirmed = await api.confirmAppointment(idOf('demo-3'));
+
+    expect(confirmed).toMatchObject({ status: 'confirmed', confirmedBy: 'client', statusChangedAt: before.statusChangedAt });
+    expect(byToken('demo-3')).toEqual(before);
+  });
+
+  it.each([
+    ['confirmAppointment', 'demo-5', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['confirmAppointment', 'demo-7', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['confirmAppointment', 'demo-8', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['confirmAppointment', 'demo-9', 'appointment_started', 'This appointment has already started.'],
+    ['cancelAppointment', 'demo-5', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['cancelAppointment', 'demo-7', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['cancelAppointment', 'demo-8', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['undoAppointmentOutcome', 'demo-1', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['undoAppointmentOutcome', 'demo-3', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['undoAppointmentOutcome', 'demo-5', 'invalid_transition', 'This appointment can no longer be changed.'],
+  ] as const)('%s on %s rejects with 409 %s and writes nothing', async (operation, token, code, message) => {
+    const { api, byToken, idOf } = await signedInWithStore();
+    const before = structuredClone(byToken(token));
+
+    const error = await api[operation](idOf(token)).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 409, code, message });
+    expect(byToken(token)).toEqual(before);
+  });
+
+  it('rejects confirming a pending appointment that starts exactly now', async () => {
+    const { api, byToken, idOf } = await signedInWithStore();
+    byToken('demo-1').startsAt = now.toISOString();
+
+    await expect(api.confirmAppointment(idOf('demo-1'))).rejects.toMatchObject({ status: 409, code: 'appointment_started' });
+  });
+
+  it.each([
+    ['a pending appointment', 'demo-1', null],
+    ['a confirmed appointment', 'demo-3', 'client'],
+    ['a started pending appointment', 'demo-9', null],
+  ])('cancels %s as staff and keeps confirmedBy', async (_name, token, confirmedBy) => {
+    const { api, byToken, idOf } = await signedInWithStore();
+
+    await expect(api.cancelAppointment(idOf(token))).resolves.toMatchObject({
+      status: 'cancelled',
+      cancelledBy: 'staff',
+      confirmedBy,
+    });
+
+    expect(byToken(token)).toMatchObject({
+      status: 'cancelled',
+      cancelledBy: 'staff',
+      confirmedBy,
+      statusChangedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+  });
+
+  it('cancels a confirmed appointment after its start', async () => {
+    const { api, byToken, idOf } = await signedInWithStore();
+    byToken('demo-3').startsAt = '2026-11-10T09:00:00.000Z';
+
+    await expect(api.cancelAppointment(idOf('demo-3'))).resolves.toMatchObject({ status: 'cancelled', confirmedBy: 'client' });
+  });
+
+  async function dayViewEntry(api: ApiService, id: string, date?: string) {
+    const { appointments } = await api.getDayView(date === undefined ? {} : { date });
+    return appointments.find((appointment) => appointment.id === id);
+  }
+
+  it('flags a staff cancel within lateCancellationHours as late, and one further ahead as not', async () => {
+    const { api, idOf } = await signedInWithStore();
+
+    await api.cancelAppointment(idOf('demo-3'));
+    await api.cancelAppointment(idOf('demo-4'));
+
+    await expect(dayViewEntry(api, idOf('demo-3'))).resolves.toMatchObject({ isLateCancellation: true });
+    await expect(dayViewEntry(api, idOf('demo-4'), '2026-11-11')).resolves.toMatchObject({ isLateCancellation: false });
+  });
+
+  it('flags a client cancel the same way', async () => {
+    const { api, idOf } = await signedInWithStore();
+
+    await api.cancelPublicAppointment('demo-1');
+    await api.cancelPublicAppointment('demo-2');
+
+    await expect(dayViewEntry(api, idOf('demo-1'))).resolves.toMatchObject({ isLateCancellation: true });
+    await expect(dayViewEntry(api, idOf('demo-2'), '2026-11-11')).resolves.toMatchObject({ isLateCancellation: false });
+  });
+
+  it('flags a cancel after the start as late, and none when lateCancellationHours is 0', async () => {
+    const { api, idOf } = await signedInWithStore();
+
+    await api.cancelAppointment(idOf('demo-9'));
+    await api.updateSettings({ lateCancellationHours: 0 });
+    await api.cancelAppointment(idOf('demo-1'));
+
+    await expect(dayViewEntry(api, idOf('demo-9'))).resolves.toMatchObject({ isLateCancellation: true });
+    await expect(dayViewEntry(api, idOf('demo-1'))).resolves.toMatchObject({ isLateCancellation: false });
+  });
+
+  it.each(['attended', 'no_show'] as const)('records %s on a started appointment and keeps the actors', async (outcome) => {
+    const { api, byToken, idOf } = await signedInWithStore();
+
+    await expect(api.recordAppointmentOutcome(idOf('demo-9'), { outcome })).resolves.toMatchObject({
+      status: outcome,
+      confirmedBy: null,
+      cancelledBy: null,
+      statusChangedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+
+    expect(byToken('demo-9').status).toBe(outcome);
+  });
+
+  it('treats exactly the start time as started for an outcome', async () => {
+    const { api, byToken, idOf } = await signedInWithStore();
+    byToken('demo-3').startsAt = now.toISOString();
+
+    await expect(api.recordAppointmentOutcome(idOf('demo-3'), { outcome: 'no_show' })).resolves.toMatchObject({
+      status: 'no_show',
+      confirmedBy: 'client',
+    });
+  });
+
+  it.each([
+    ['demo-5', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['demo-7', 'invalid_transition', 'This appointment can no longer be changed.'],
+    ['demo-1', 'appointment_not_started', 'This appointment has not started yet.'],
+  ])('rejects an outcome on %s with 409 %s', async (token, code, message) => {
+    const { api, byToken, idOf } = await signedInWithStore();
+    const before = structuredClone(byToken(token));
+
+    const error = await api.recordAppointmentOutcome(idOf(token), { outcome: 'maybe' } as never).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ status: 409, code, message });
+    expect(byToken(token)).toEqual(before);
+  });
+
+  it.each([
+    ['no outcome', {}, 'Choose attended or no-show.', 'outcome'],
+    ['an unknown outcome', { outcome: 'late' }, 'Choose attended or no-show.', 'outcome'],
+    ['a null outcome', { outcome: null }, 'Choose attended or no-show.', 'outcome'],
+    ['an unknown key', { outcome: 'attended', note: 'x' }, 'Unknown field.', 'note'],
+  ])('rejects an outcome body with %s with 422', async (_name, body, message, field) => {
+    const { api, byToken, idOf } = await signedInWithStore();
+    const before = structuredClone(byToken('demo-9'));
+
+    const error = await api.recordAppointmentOutcome(idOf('demo-9'), body as never).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 422, code: 'validation_error', message, field });
+    expect(byToken('demo-9')).toEqual(before);
+  });
+
+  it('undoes a no-show without confirmedBy back to pending', async () => {
+    const { api, byToken, idOf } = await signedInWithStore();
+
+    await expect(api.undoAppointmentOutcome(idOf('demo-8'))).resolves.toMatchObject({
+      status: 'pending',
+      confirmedBy: null,
+      statusChangedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+
+    expect(byToken('demo-8').status).toBe('pending');
+  });
+
+  it('undoes an outcome on a confirmed appointment back to confirmed, as the clock moves', async () => {
+    vi.useFakeTimers({ now, toFake: ['Date'] });
+    try {
+      const { api, byToken } = createMockApiWithStore({});
+      await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+      const id = byToken('demo-3').id;
+      vi.setSystemTime(new Date('2026-11-10T13:05:00Z'));
+
+      await expect(api.recordAppointmentOutcome(id, { outcome: 'attended' })).resolves.toMatchObject({ status: 'attended' });
+      vi.setSystemTime(new Date('2026-11-10T13:10:00Z'));
+      await expect(api.undoAppointmentOutcome(id)).resolves.toMatchObject({
+        status: 'confirmed',
+        confirmedBy: 'client',
+        statusChangedAt: '2026-11-10T13:10:00.000Z',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('counts a no-show in getClient and stops counting it after undo', async () => {
+    const { api, byToken, idOf } = await signedInWithStore();
+    const benId = byToken('demo-9').clientId;
+    const { noShowCount } = await api.getClient(benId);
+
+    await api.recordAppointmentOutcome(idOf('demo-9'), { outcome: 'no_show' });
+    await expect(api.getClient(benId)).resolves.toMatchObject({ name: 'Ben Carter', noShowCount: noShowCount + 1 });
+
+    await api.undoAppointmentOutcome(idOf('demo-9'));
+    await expect(api.getClient(benId)).resolves.toMatchObject({ noShowCount });
   });
 });
