@@ -16,6 +16,7 @@ import type {
   OutcomeRequest,
   PublicAppointment,
   StaffMember,
+  UpdateAppointmentRequest,
   UpdateSettingsRequest,
   UpdateStaffMemberRequest,
 } from './types';
@@ -244,12 +245,7 @@ function createAppointment(store: DemoData, body: CreateAppointmentRequest, now:
     token: crypto.randomUUID(),
   };
   store.appointments.push(appointment);
-  const confirmationLink = `${window.location.origin}/c/${appointment.token}`;
-  return {
-    appointment: toAppointment(store, appointment),
-    confirmationLink,
-    message: `Please confirm your appointment: ${confirmationLink}`,
-  };
+  return linkFor(store, appointment);
 }
 
 function findAppointment(store: DemoData, id: string): DemoAppointment {
@@ -327,6 +323,96 @@ function validationError(message: string, field?: string): ApiError {
 function hasLength(value: string, min: number, max: number): boolean {
   const length = [...value].length;
   return length >= min && length <= max;
+}
+
+const staffMemberMessage = 'Choose an active staff member.';
+const startsAtMessage = 'Enter a valid date and time.';
+const updateFields = ['staffMemberId', 'service', 'startsAt', 'durationMinutes'];
+
+/** The backend's `z.iso.datetime({ offset: true })`: a real calendar date, seconds required, `Z` or `±hh:mm`. */
+const offsetDateTimePattern =
+  /^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|02-(?:0[1-9]|1\d|2[0-8])))T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+
+function isDuration(value: unknown): boolean {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 5 && value <= 480;
+}
+
+/** Same order as `updateAppointmentSchema` and `parseBody` in the backend: each field's shape, then unknown keys, then an empty body. */
+function assertUpdateShape(body: Record<string, unknown>) {
+  const { staffMemberId, service, startsAt, durationMinutes } = body;
+  if (staffMemberId !== undefined && (typeof staffMemberId !== 'string' || !uuidPattern.test(staffMemberId))) {
+    throw validationError(staffMemberMessage, 'staffMemberId');
+  }
+  if (service !== undefined && (typeof service !== 'string' || !hasLength(service, 1, 80))) {
+    throw validationError('Enter the service, up to 80 characters.', 'service');
+  }
+  if (startsAt !== undefined && (typeof startsAt !== 'string' || !offsetDateTimePattern.test(startsAt))) {
+    throw validationError(startsAtMessage, 'startsAt');
+  }
+  if (durationMinutes !== undefined && !isDuration(durationMinutes)) {
+    throw validationError('Enter a duration from 5 to 480 minutes.', 'durationMinutes');
+  }
+  const unknownField = Object.keys(body).find((key) => !updateFields.includes(key));
+  if (unknownField !== undefined) {
+    throw validationError('Unknown field.', unknownField);
+  }
+  if (Object.keys(body).length === 0) {
+    throw validationError('Change at least one field.');
+  }
+}
+
+/** Same checks, order and messages as `PATCH /appointments/:id` in `backend/src/appointment-routes.ts`. */
+function updateAppointment(store: DemoData, id: string, requestBody: UpdateAppointmentRequest, now: Date): Appointment {
+  const appointment = findAppointment(store, id);
+  if (closedStatuses.has(appointment.status)) {
+    throw invalidTransition();
+  }
+  const body = Object.fromEntries(Object.entries(requestBody).filter(([, value]) => value !== undefined));
+  assertUpdateShape(body);
+  const { staffMemberId, service, startsAt, durationMinutes } = body as UpdateAppointmentRequest;
+  if (staffMemberId !== undefined && !store.staff.some((entry) => entry.id === staffMemberId && entry.isActive)) {
+    throw validationError(staffMemberMessage, 'staffMemberId');
+  }
+  const isStartChanged = startsAt !== undefined && Date.parse(startsAt) !== Date.parse(appointment.startsAt);
+  if (isStartChanged && Date.parse(startsAt) <= now.getTime()) {
+    throw validationError('Choose a time in the future.', 'startsAt');
+  }
+  appointment.staffMemberId = staffMemberId ?? appointment.staffMemberId;
+  appointment.service = service ?? appointment.service;
+  appointment.durationMinutes = durationMinutes ?? appointment.durationMinutes;
+  if (isStartChanged) {
+    if (appointment.status === 'confirmed') {
+      appointment.statusChangedAt = now.toISOString();
+    }
+    appointment.startsAt = new Date(startsAt).toISOString();
+    appointment.status = 'pending';
+    appointment.confirmedBy = null;
+  }
+  appointment.updatedAt = now.toISOString();
+  return toAppointment(store, appointment);
+}
+
+function linkFor(store: DemoData, appointment: DemoAppointment): AppointmentWithLink {
+  const confirmationLink = `${window.location.origin}/c/${appointment.token}`;
+  return {
+    appointment: toAppointment(store, appointment),
+    confirmationLink,
+    message: `Please confirm your appointment: ${confirmationLink}`,
+  };
+}
+
+/** Same checks, order and messages as `POST /appointments/:id/link` in `backend/src/appointment-routes.ts`. */
+function regenerateAppointmentLink(store: DemoData, id: string, now: Date): AppointmentWithLink {
+  const appointment = findAppointment(store, id);
+  if (closedStatuses.has(appointment.status)) {
+    throw invalidTransition();
+  }
+  if (hasStarted(appointment, now)) {
+    throw new ApiError(409, 'appointment_started', 'This appointment has already started.');
+  }
+  appointment.token = crypto.randomUUID();
+  appointment.updatedAt = now.toISOString();
+  return linkFor(store, appointment);
 }
 
 const settingRanges = {
@@ -442,10 +528,6 @@ function updateStaffMember(store: DemoData, id: string, body: UpdateStaffMemberR
   return toStaffMember(staffMember);
 }
 
-function notImplemented(operationId: string): Promise<never> {
-  return Promise.reject(new Error(`Not implemented in mock: ${operationId}`));
-}
-
 /** In memory only: every instance starts from fresh demo data, and a reload resets it. */
 export function createMockApi(options?: { now?: Date }): ApiService {
   const store = buildDemoData(options?.now ?? new Date());
@@ -511,7 +593,10 @@ export function createMockApi(options?: { now?: Date }): ApiService {
       assertSignedIn();
       return getAppointment(store, id);
     },
-    updateAppointment: () => notImplemented('updateAppointment'),
+    async updateAppointment(id, body) {
+      assertSignedIn();
+      return updateAppointment(store, id, body, currentTime());
+    },
     async confirmAppointment(id) {
       assertSignedIn();
       return confirmAppointment(store, id, currentTime());
@@ -528,7 +613,10 @@ export function createMockApi(options?: { now?: Date }): ApiService {
       assertSignedIn();
       return undoAppointmentOutcome(store, id, currentTime());
     },
-    regenerateAppointmentLink: () => notImplemented('regenerateAppointmentLink'),
+    async regenerateAppointmentLink(id) {
+      assertSignedIn();
+      return regenerateAppointmentLink(store, id, currentTime());
+    },
     async getSettings() {
       assertSignedIn();
       return structuredClone(store.settings);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDate, formatTime, wallTimeToUtc } from './format-date-time';
+import { formatDate, formatTime, utcToWallTime, wallTimeToUtc } from './format-date-time';
 
 describe('formatDate and formatTime', () => {
   it('formats in the business time zone', () => {
@@ -38,5 +38,22 @@ describe('wallTimeToUtc', () => {
   it('returns null for a value that is not YYYY-MM-DDTHH:mm', () => {
     expect(wallTimeToUtc('', 'Europe/Madrid')).toBeNull();
     expect(wallTimeToUtc('2026-11-11', 'Europe/Madrid')).toBeNull();
+  });
+});
+
+describe('utcToWallTime', () => {
+  it('gives the datetime-local value in the given time zone', () => {
+    expect(utcToWallTime('2026-11-11T09:30:00Z', 'Europe/Madrid')).toBe('2026-11-11T10:30');
+    expect(utcToWallTime('2026-11-11T09:30:00Z', 'UTC')).toBe('2026-11-11T09:30');
+  });
+
+  it('applies summer time', () => {
+    expect(utcToWallTime('2026-07-01T08:30:00Z', 'Europe/Madrid')).toBe('2026-07-01T10:30');
+  });
+
+  it('gives the same value for both instants of a time that happens twice', () => {
+    expect(utcToWallTime('2026-10-25T00:30:00Z', 'Europe/Madrid')).toBe('2026-10-25T02:30');
+    expect(utcToWallTime('2026-10-25T01:30:00Z', 'Europe/Madrid')).toBe('2026-10-25T02:30');
+    expect(wallTimeToUtc('2026-10-25T02:30', 'Europe/Madrid')).toBe('2026-10-25T00:30:00.000Z');
   });
 });

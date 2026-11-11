@@ -50,3 +50,9 @@ export function wallTimeToUtc(localDateTime: string, timeZone: string): string |
   const matching = candidates.filter((utcMs) => utcMs + zoneOffsetMs(utcMs, timeZone) === wallMs);
   return matching.length === 0 ? null : new Date(Math.min(...matching)).toISOString();
 }
+
+/** The `datetime-local` value (`YYYY-MM-DDTHH:mm`) of that instant in `timeZone`. */
+export function utcToWallTime(iso: string, timeZone: string): string {
+  const utcMs = Date.parse(iso);
+  return new Date(utcMs + zoneOffsetMs(utcMs, timeZone)).toISOString().slice(0, 16);
+}
