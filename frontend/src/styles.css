@@ -148,3 +148,85 @@ button.secondary {
   background: #fff;
   color: #0b57d0;
 }
+
+select {
+  font: inherit;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #9aa0a6;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.dashboard-bar {
+  padding: 8px 0;
+  background: #f6f7f9;
+}
+
+.dashboard-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0 16px;
+}
+
+.dashboard-meta {
+  margin: 0 0 8px;
+}
+
+.dashboard-group {
+  margin-bottom: 12px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+}
+
+.dashboard-group summary {
+  padding: 8px 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dashboard-group > p {
+  margin: 0;
+  padding: 0 16px 12px;
+}
+
+.appointment-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.appointment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 8px 16px;
+  border-top: 1px solid #dadce0;
+  overflow-wrap: anywhere;
+}
+
+.appointment-time,
+.appointment-client {
+  font-weight: 600;
+}
+
+.appointment-client {
+  min-width: 0;
+}
+
+.flag {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #fce8e6;
+  color: #8c1d18;
+}
+
+@media (min-width: 768px) {
+  .dashboard-bar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+}

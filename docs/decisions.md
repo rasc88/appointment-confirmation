@@ -101,6 +101,21 @@ country, so a written month cannot be read month-first. Day before month
 matches decision 20's message text, and 24-hour time matches `{time}`.
 The UI is English only.
 
+### 23. Each appointment is in one dashboard group
+
+The dashboard decides the group in this order: `cancelled` is Cancelled;
+`attended` or `no_show` is Completed; a `pending` or `confirmed`
+appointment whose start time is at or before now is Needs outcome; a
+`pending` or `confirmed` appointment with at least one at-risk reason is
+At risk; otherwise `pending` is Pending and `confirmed` is Confirmed. So
+At risk wins over Pending and Confirmed, and a started `pending` or
+`confirmed` appointment is Needs outcome only, with no at-risk reasons
+shown. The dashboard decides "started" with the browser clock; the server
+still rejects a late action with `409`.
+
+Why: a card in two groups double-counts and invites two different actions
+on one appointment.
+
 ## Technical
 
 ### 7. Express 5 + TypeScript + Prisma + PostgreSQL everywhere
