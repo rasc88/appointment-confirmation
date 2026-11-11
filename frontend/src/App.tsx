@@ -5,9 +5,9 @@ import { RequireStaff } from './auth/RequireStaff';
 import { ClientAppointmentPage } from './pages/ClientAppointmentPage';
 import { ClientHistoryPage } from './pages/ClientHistoryPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { EditAppointmentPage } from './pages/EditAppointmentPage';
 import { NewAppointmentPage } from './pages/NewAppointmentPage';
 import { NotFoundPage } from './pages/NotFoundPage';
-import { PlaceholderPage } from './pages/PlaceholderPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SignInPage } from './pages/SignInPage';
 import { StaffPage } from './pages/StaffPage';
@@ -35,7 +35,7 @@ export function App() {
         <Route path="/sign-in" element={<SignInPage />} />
         <Route path="/" element={staffPage(<DashboardPage />)} />
         <Route path="/appointments/new" element={staffPage(<NewAppointmentPage />)} />
-        <Route path="/appointments/:id/edit" element={staffPage(<PlaceholderPage title="Edit appointment" />)} />
+        <Route path="/appointments/:id/edit" element={staffPage(<EditAppointmentPage />)} />
         <Route path="/clients/:id" element={staffPage(<ClientHistoryPage />)} />
         <Route path="/settings" element={staffPage(<SettingsPage />)} />
         <Route path="/staff" element={staffPage(<StaffPage />)} />

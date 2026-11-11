@@ -134,6 +134,18 @@ Rejecting a gap is clearer than silently moving the time. The earlier of
 two is what `Temporal`'s default does, and it is rare enough not to need a
 choice in the UI.
 
+### 31. Staff edit and regenerate only before the start time
+
+The edit page offers no form and no Regenerate link once an appointment
+has started, judged with the browser clock when it was loaded, as on the
+dashboard, although the contract allows `PATCH` on a started `pending` or
+`confirmed` appointment.
+
+Why: after the start only the outcome is left to record (decision 23,
+#32), and changing the details afterwards would rewrite what the client
+was asked to confirm. The server still rejects a late regenerate with
+`409`.
+
 ## Technical
 
 ### 7. Express 5 + TypeScript + Prisma + PostgreSQL everywhere

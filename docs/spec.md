@@ -125,7 +125,7 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 
 ### 6.3 Appointments
 - Fields: client, staff member, service name, start time, duration in minutes.
-- Staff can edit the staff member, service, start time, and duration while the appointment is `pending` or `confirmed`. Editing the start time resets status to `pending`, because the client confirmed a different time.
+- Staff can edit the staff member, service, start time, and duration while the appointment is `pending` or `confirmed`. Editing the start time resets status to `pending`, because the client confirmed a different time. The edit page offers it only before the start time (decision 31).
 - The client of an appointment cannot be changed after creation. The link has already gone to that client; staff cancel and create a new appointment instead.
 - A new start time, on create or edit, must be in the future.
 - Staff can confirm a `pending` appointment before its start time. The confirmation records that it was confirmed by staff.

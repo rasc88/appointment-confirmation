@@ -27,7 +27,7 @@ function isUnauthenticated(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
 }
 
-export function isAppointmentField(field: string | undefined): field is AppointmentField {
+function isAppointmentField(field: string | undefined): field is AppointmentField {
   return appointmentFields.includes(field as AppointmentField);
 }
 
