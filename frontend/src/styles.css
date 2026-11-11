@@ -97,3 +97,54 @@ input[aria-invalid='true'] {
 .loading {
   padding: 16px;
 }
+
+.client-page {
+  max-width: 480px;
+}
+
+.client-card {
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.client-card h1 {
+  margin-top: 0;
+}
+
+.client-details {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 16px;
+}
+
+.client-details dt {
+  font-weight: 600;
+}
+
+.client-details dd {
+  margin: 0;
+}
+
+.client-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.client-actions p {
+  margin: 0;
+  font-weight: 600;
+}
+
+.client-card button {
+  width: 100%;
+  min-height: 44px;
+}
+
+button.secondary {
+  background: #fff;
+  color: #0b57d0;
+}
