@@ -245,7 +245,7 @@ Placeholders: `{client}`, `{business}`, `{service}`, `{staff}`, `{date}`, `{time
 
 | Layer | Choice |
 |---|---|
-| Frontend | Vite + React + TypeScript |
+| Frontend | Vite + React + TypeScript, React Router, plain CSS |
 | Backend | Node.js 24 LTS, Express 5, TypeScript |
 | Validation | Zod, matching the OpenAPI contract |
 | Database | PostgreSQL 17 via Prisma (schema, migrations, client) |

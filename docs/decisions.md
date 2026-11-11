@@ -169,6 +169,21 @@ Why: pure JavaScript, so no native build on the arm64 instance or in
 Docker. The 72-byte bcrypt limit is why `openapi.yaml` caps passwords at
 72 characters.
 
+### 21. The frontend reaches the API only through one `ApiService` interface
+
+Types in `frontend/src/api/types.ts` are hand-written to match
+`openapi.yaml`. Pages get the service from `useApi()`; a mock
+implementation backs the prototype and the frontend tests, and an HTTP one
+(#14) backs the app. Every implementation rejects with `ApiError`
+(`status`, `code`, `field`). Routing uses `react-router`; styling is plain
+CSS.
+
+Why: pages are built and tested against the mock before the backend
+exists, and connecting the real API changes one line instead of every
+page. Hand-written types avoid a generator and a build step for about 20
+types. Cost accepted: the types can drift from the contract, which QA
+checks.
+
 ## Process
 
 ### 13. One agent at a time
