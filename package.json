@@ -15,6 +15,7 @@
     "dev": "concurrently --names backend,frontend --prefix-colors blue,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
     "db:migrate": "npm run db:migrate -w backend --",
     "db:seed": "npm run db:seed -w backend",
+    "db:seed:if-empty": "npm run db:seed:if-empty -w backend",
     "test": "npm test --workspaces",
     "lint": "eslint . && npm run lint:openapi",
     "lint:openapi": "redocly lint openapi.yaml",

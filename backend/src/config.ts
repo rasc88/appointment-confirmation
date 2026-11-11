@@ -1,6 +1,8 @@
 export interface Config {
   sessionSecret: string;
   publicBaseUrl: string;
+  environment: string;
+  version: string;
 }
 
 function isHttpUrl(value: string) {
@@ -12,7 +14,7 @@ function isHttpUrl(value: string) {
   }
 }
 
-/** Messages name the variable, never its value. */
+/** Messages name the variable, never its value. `APP_ENV` and `APP_VERSION` are reported, not validated. */
 export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const { SESSION_SECRET: sessionSecret, PUBLIC_BASE_URL: publicBaseUrl } = env;
   if (sessionSecret === undefined || sessionSecret.length < 32) {
@@ -21,5 +23,5 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (publicBaseUrl === undefined || !isHttpUrl(publicBaseUrl)) {
     throw new Error('PUBLIC_BASE_URL must be set to an http: or https: URL');
   }
-  return { sessionSecret, publicBaseUrl };
+  return { sessionSecret, publicBaseUrl, environment: env.APP_ENV ?? 'unknown', version: env.APP_VERSION ?? 'unknown' };
 }

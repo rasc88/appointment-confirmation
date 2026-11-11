@@ -327,8 +327,9 @@ Cost accepted: a zone name only one browser lists is rejected.
 `npm run build` builds only the frontend (`vite build`); `npm start` runs
 `tsx src/server.ts` with no backend compile step. The backend serves
 `frontend/dist` with an `index.html` fallback for every non-`/v1` GET
-outside `/assets/`, hashed assets cached for a year as immutable and
-`index.html` revalidated on every load, plus `nosniff`,
+outside `/assets/` whose last path segment has no `.` (any other path is a
+missing file and gets `404`), hashed assets cached for a year as immutable
+and everything else served `Cache-Control: no-store`, plus `nosniff`,
 `Referrer-Policy: no-referrer`, and a `'self'`-only CSP. `main.tsx` always
 uses the HTTP service; the mock is for tests only, with no runtime switch.
 
@@ -341,6 +342,42 @@ a second way to run the app to keep working. `no-referrer` keeps a
 `/c/{token}` URL out of `Referer` headers, and `frame-ancestors 'none'`
 stops the confirm buttons being framed. Cost accepted: `tsx` compiles on
 start (a fraction of a second) and the image carries devDependencies.
+`no-store` rather than `no-cache` keeps the browser from restoring a
+signed-in page from its back/forward cache after sign-out (#15).
+
+### 33. The container migrates on every start and seeds demo data only into an empty local database
+
+The image is one stage on `node:24-slim` with `openssl` installed, keeps
+the repository layout under `/app`, keeps devDependencies, sets
+`NODE_ENV=production` after the build, and runs as `node`. Its default
+command runs `prisma migrate deploy` and then `exec npm start`, never the
+seed. Local Compose adds `npm run db:seed:if-empty` between the two, which
+seeds only when there is no `StaffMember` row and still refuses
+`APP_ENV=production`. `APP_VERSION` is a build argument and `APP_ENV` comes
+from Compose, both `unknown` when unset, and `GET /v1/health` reports them
+after a `SELECT 1` through Prisma. The container listens on 3000 in every
+environment; only the host port changes (8080 locally). Compose runs `app`
+with `init: true` and memory limits of 512 MB for `app` and 256 MB for `db`.
+
+Why: Debian glibc is the base Prisma documents and tests most, and the
+migration engine needs OpenSSL, which slim lacks; alpine's musl would add a
+second engine target for no gain, and both images are multi-arch, so arm64
+needs nothing extra. A second stage would only drop the frontend sources,
+since decision 32 keeps the devDependencies. `prisma migrate deploy` is
+idempotent, while the seed wipes the database, so seeding when there is no
+staff gives a working demo on a fresh volume and leaves every later start
+alone; production has two guards, the image's command and the seed's own
+refusal. A `SEED_DEMO_DATA` flag was rejected: one more variable to get
+right per environment, and on its own it would still wipe on every
+restart. The health check does a real round trip because #19 needs to know
+the app can serve, not only that the process is up. The version is baked
+into the image so #19 can check which tag is running; the environment
+differs per Compose project running the same image. Without an init
+process, `sh` as PID 1 swallows `SIGTERM` and every stop waits 10 seconds.
+Two environments at those limits take 1.5 GB of the 2 GiB host (decision
+11), leaving room for the OS and Docker. Cost accepted: the image carries
+devDependencies, and a local database that has staff but no demo data is
+never reseeded automatically.
 
 ## Process
 

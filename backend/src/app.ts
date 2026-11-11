@@ -5,6 +5,7 @@ import { createClientRouter } from './client-routes.js';
 import { readConfig } from './config.js';
 import { ApiError, errorHandler } from './errors.js';
 import { createFrontendRouter } from './frontend.js';
+import { createHealthRouter } from './health-routes.js';
 import { createPublicRouter } from './public-routes.js';
 import { createSettingsRouter } from './settings-routes.js';
 import { createStaffRouter } from './staff-routes.js';
@@ -43,6 +44,7 @@ export function createApp(options: { now?: () => Date; frontendDir?: string } = 
   app.use(setSecurityHeaders);
 
   const v1 = express.Router();
+  v1.use(createHealthRouter(config));
   v1.use(rejectCrossSiteRequests(new URL(config.publicBaseUrl).origin));
   v1.use(createPublicRouter(now));
   v1.use(express.json({ limit: '100kb', strict: false }));

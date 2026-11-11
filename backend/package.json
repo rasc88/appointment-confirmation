@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
+    "db:seed:if-empty": "tsx --env-file-if-exists=../.env prisma/seed.ts --if-empty",
     "postinstall": "prisma generate"
   },
   "dependencies": {

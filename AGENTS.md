@@ -66,6 +66,9 @@ read `.env`; a value set in the shell wins, for example
   at and fill it with the demo data from `docs/spec.md` section 17. Demo
   logins: `alex@demo.test` and `sam@demo.test`, password `demo1234`.
   Refuses to run when `APP_ENV=production`
+- `npm run db:seed:if-empty` - the same seed, but only when the database
+  has no staff member; otherwise it logs one line and changes nothing.
+  Also refuses `APP_ENV=production`
 - `npm test` - Vitest once (no watch) in every workspace except e2e. Needs
   `docker compose up -d db`; backend tests migrate and use
   `appointments_test`, one file at a time
@@ -74,7 +77,18 @@ read `.env`; a value set in the shell wins, for example
   (`npm run lint:openapi` runs only Redocly; rules in `redocly.yaml`)
 - `npm run typecheck` - `tsc --noEmit`, every workspace
 - `npm run test:e2e` - Playwright against the Docker Compose stack
-- `docker compose up --build` - the whole app with Postgres, one command
+- `docker compose up --build` - the whole app with Postgres, one command,
+  at `http://localhost:8080`, using the same `appointments` database as
+  `npm run dev`. Every start applies migrations (`prisma migrate deploy`),
+  then seeds the demo data only when the database has no staff
+  (`npm run db:seed:if-empty`). `docker compose down` keeps the data; only
+  `docker compose down -v` removes it. To refresh the demo data, run
+  `docker compose exec app npm run db:seed` (wipes every row)
+- `GET /v1/health` - no session needed: `200` with
+  `{"status":"ok","environment":...,"version":...}` after a database round
+  trip, `503` with `"status":"unavailable"` when the database is down.
+  `environment` is `APP_ENV` and `version` is `APP_VERSION` (the image's
+  `--build-arg APP_VERSION`), each `unknown` when unset
 
 Rules
 

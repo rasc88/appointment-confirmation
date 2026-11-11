@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 
 const indexHtml = '<!doctype html><title>Fixture</title><div id="root"></div>';
@@ -25,6 +25,17 @@ afterAll(async () => {
   await rm(frontendDir, { recursive: true });
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
+
+/** Express prints unhandled errors only outside `NODE_ENV=test`, so the logging checks build the app as in production. */
+function createProductionApp() {
+  vi.stubEnv('NODE_ENV', 'production');
+  return createApp({ frontendDir });
+}
+
 function expectSecurityHeaders(response: request.Response) {
   expect(response.headers['x-content-type-options']).toBe('nosniff');
   expect(response.headers['referrer-policy']).toBe('no-referrer');
@@ -43,12 +54,12 @@ describe('serving the built frontend', () => {
     '/c/abcDEF123_-abcDEF123_-',
     '/nope',
     '/index.html',
-  ])('answers GET %s with index.html, revalidated on every load', async (url) => {
+  ])('answers GET %s with index.html, never stored', async (url) => {
     const response = await request(createApp({ frontendDir })).get(url);
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toMatch(/^text\/html/);
-    expect(response.headers['cache-control']).toBe('no-cache');
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.text).toBe(indexHtml);
   });
 
@@ -68,19 +79,53 @@ describe('serving the built frontend', () => {
     expect(response.text).toBe(assetJs);
   });
 
-  it('serves another static file with its own type and revalidated', async () => {
+  it('serves another static file with its own type, never stored', async () => {
     const response = await request(createApp({ frontendDir })).get('/favicon.svg');
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toMatch(/^image\/svg\+xml/);
-    expect(response.headers['cache-control']).toBe('no-cache');
+    expect(response.headers['cache-control']).toBe('no-store');
   });
 
-  it.each(['/assets/index-old.js', '/assets/nested/missing.css'])('answers a missing asset %s with 404, not index.html', async (url) => {
+  it.each(['/assets/index-old.js', '/assets/nested/missing.css', '/favicon.ico', '/robots.txt', '/c/abc.def'])(
+    'answers %s with 404, not index.html, and logs nothing',
+    async (url) => {
+      const consoleError = vi.spyOn(console, 'error');
+      const consoleLog = vi.spyOn(console, 'log');
+
+      const response = await request(createProductionApp()).get(url);
+
+      expect(response.status).toBe(404);
+      expect(response.text).not.toContain('Fixture');
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(consoleLog).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['/assets/index-old.js', '/favicon.ico'])('answers %s with a short plain-text body', async (url) => {
     const response = await request(createApp({ frontendDir })).get(url);
 
-    expect(response.status).toBe(404);
+    expect(response.headers['content-type']).toMatch(/^text\/plain/);
+    expect(response.text).toBe('Not Found');
+  });
+
+  it.each([
+    ['/assets/..%2f..%2fpackage.json', [403, 404]],
+    ['/assets/%2e%2e/%2e%2e/package.json', [403, 404]],
+    ['/..%2f..%2fpackage.json', [403, 404]],
+    ['/assets/%E0%A4%A', [400]],
+    ['/sign-in/%E0%A4%A', [400]],
+  ] as const)('answers %s with %j and logs nothing', async (url, statuses) => {
+    const consoleError = vi.spyOn(console, 'error');
+    const consoleLog = vi.spyOn(console, 'log');
+
+    const response = await request(createProductionApp()).get(url);
+
+    expect(statuses).toContain(response.status);
     expect(response.text).not.toContain('Fixture');
+    expect(response.text).not.toContain('"private"');
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(consoleLog).not.toHaveBeenCalled();
   });
 
   it.each(['/v1/nope', '/v1/c/abc'])('keeps the JSON 404 for %s', async (url) => {
