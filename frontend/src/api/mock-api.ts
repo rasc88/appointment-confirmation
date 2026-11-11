@@ -7,6 +7,7 @@ import type {
   AppointmentWithLink,
   BusinessSettings,
   Client,
+  ClientDetail,
   CreateAppointmentRequest,
   CreateClientRequest,
   CreateStaffMemberRequest,
@@ -149,6 +150,28 @@ function createClient(store: DemoData, { name, phone }: CreateClientRequest, now
   const client: Client = { id: crypto.randomUUID(), name, phone: phone ?? null, createdAt: now.toISOString() };
   store.clients.push(client);
   return structuredClone(client);
+}
+
+/** Same order and count as `GET /clients/{id}` in `backend/src/client-routes.ts`. */
+function getClient(store: DemoData, id: string): ClientDetail {
+  const client = store.clients.find((entry) => entry.id === id);
+  if (!client) {
+    throw new ApiError(404, 'not_found', 'Not found.');
+  }
+  const appointments = store.appointments
+    .filter((appointment) => appointment.clientId === id)
+    .sort((first, second) => {
+      const byStart = Date.parse(second.startsAt) - Date.parse(first.startsAt);
+      if (byStart !== 0) {
+        return byStart;
+      }
+      return first.id < second.id ? -1 : 1;
+    });
+  return {
+    ...structuredClone(client),
+    noShowCount: appointments.filter(({ status }) => status === 'no_show').length,
+    appointments: appointments.map((appointment) => toAppointment(store, appointment)),
+  };
 }
 
 const dateTimePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/i;
@@ -390,7 +413,10 @@ export function createMockApi(options?: { now?: Date }): ApiService {
       assertSignedIn();
       return createClient(store, body, currentTime());
     },
-    getClient: () => notImplemented('getClient'),
+    async getClient(id) {
+      assertSignedIn();
+      return getClient(store, id);
+    },
     async getDayView(params) {
       assertSignedIn();
       return getDayView(store, params, currentTime());

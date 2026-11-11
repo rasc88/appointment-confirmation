@@ -3,6 +3,7 @@ import { Outlet, Route, Routes } from 'react-router';
 import { AuthProvider } from './auth/auth-context';
 import { RequireStaff } from './auth/RequireStaff';
 import { ClientAppointmentPage } from './pages/ClientAppointmentPage';
+import { ClientHistoryPage } from './pages/ClientHistoryPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { NewAppointmentPage } from './pages/NewAppointmentPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -35,7 +36,7 @@ export function App() {
         <Route path="/" element={staffPage(<DashboardPage />)} />
         <Route path="/appointments/new" element={staffPage(<NewAppointmentPage />)} />
         <Route path="/appointments/:id/edit" element={staffPage(<PlaceholderPage title="Edit appointment" />)} />
-        <Route path="/clients/:id" element={staffPage(<PlaceholderPage title="Client" />)} />
+        <Route path="/clients/:id" element={staffPage(<ClientHistoryPage />)} />
         <Route path="/settings" element={staffPage(<SettingsPage />)} />
         <Route path="/staff" element={staffPage(<StaffPage />)} />
         <Route path="*" element={<NotFoundPage />} />

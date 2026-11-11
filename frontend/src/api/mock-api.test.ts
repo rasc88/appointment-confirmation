@@ -72,7 +72,7 @@ describe('createMockApi', () => {
   });
 
   it('rejects operations later issues implement', async () => {
-    await expect(createMockApi().getClient('unknown')).rejects.toThrow('Not implemented in mock: getClient');
+    await expect(createMockApi().updateAppointment('unknown', {})).rejects.toThrow('Not implemented in mock: updateAppointment');
   });
 });
 
@@ -443,6 +443,7 @@ describe('createMockApi settings, clients and appointments', () => {
     ['createClient', (api: ApiService) => api.createClient({ name: '' })],
     ['createAppointment', (api: ApiService) => api.createAppointment({ clientId: '', staffMemberId: '', service: '', startsAt: '' })],
     ['getAppointment', (api: ApiService) => api.getAppointment('unknown')],
+    ['getClient', (api: ApiService) => api.getClient('unknown')],
   ])('rejects %s with 401 before any other check when nobody is signed in', async (_operation, call) => {
     const error = await call(createMockApi({ now })).catch((caught: unknown) => caught);
 
@@ -695,6 +696,118 @@ describe('createMockApi createAppointment and getAppointment', () => {
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 404, code: 'not_found' });
+  });
+});
+
+describe('createMockApi getClient', () => {
+  async function signedInWithStore() {
+    const { api, byToken, store } = createMockApiWithStore();
+    await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+    const clientId = (name: string) => store.clients.find((client) => client.name === name)!.id;
+    return { api, byToken, clientId };
+  }
+
+  it.each(['unknown', '', '00000000-0000-4000-8000-000000000000'])('rejects the unknown id %j with 404', async (id) => {
+    const api = await signedInMockApi();
+
+    const error = await api.getClient(id).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 404, code: 'not_found', message: 'Not found.' });
+  });
+
+  it('returns exactly the ClientDetail and Appointment keys', async () => {
+    const { api, clientId } = await signedInWithStore();
+
+    const detail = await api.getClient(clientId('Felix Novak'));
+
+    expect(Object.keys(detail).sort()).toEqual(['appointments', 'createdAt', 'id', 'name', 'noShowCount', 'phone']);
+    expect(detail).toMatchObject({ id: clientId('Felix Novak'), name: 'Felix Novak', phone: '+34 600 000 050', createdAt: now.toISOString() });
+    for (const appointment of detail.appointments) {
+      expect(Object.keys(appointment).sort()).toEqual([
+        'cancelledBy',
+        'client',
+        'confirmedBy',
+        'createdAt',
+        'durationMinutes',
+        'id',
+        'service',
+        'staffMember',
+        'startsAt',
+        'status',
+        'statusChangedAt',
+        'updatedAt',
+      ]);
+      await expect(api.getAppointment(appointment.id)).resolves.toEqual(appointment);
+    }
+  });
+
+  it('returns a copy', async () => {
+    const { api, clientId } = await signedInWithStore();
+    const first = await api.getClient(clientId('Felix Novak'));
+    const expected = structuredClone(first);
+
+    first.name = 'Changed';
+    first.noShowCount = 9;
+    first.appointments[0].service = 'Changed';
+    first.appointments[0].client.name = 'Changed';
+    first.appointments.pop();
+
+    await expect(api.getClient(clientId('Felix Novak'))).resolves.toEqual(expected);
+  });
+
+  it('lists every appointment of the client newest first', async () => {
+    const { api, byToken, clientId } = await signedInWithStore();
+
+    const { appointments } = await api.getClient(clientId('Felix Novak'));
+
+    expect(appointments.map((appointment) => appointment.id)).toEqual(['demo-13', 'demo-11', 'demo-12'].map((token) => byToken(token).id));
+  });
+
+  it('orders appointments that start at the same instant by id', async () => {
+    const api = await signedInMockApi();
+    const client = await api.createClient({ name: 'Iris Moreau' });
+    const body = { ...(await validAppointmentRequest(api)), clientId: client.id };
+    const created = [await api.createAppointment(body), await api.createAppointment(body), await api.createAppointment(body)];
+
+    const { appointments } = await api.getClient(client.id);
+
+    expect(appointments.map((appointment) => appointment.id)).toEqual(
+      created.map(({ appointment }) => appointment.id).sort((first, second) => (first < second ? -1 : 1)),
+    );
+  });
+
+  it.each([
+    ['Felix Novak', 2],
+    ['Elena Sousa', 1],
+    ['Ana Torres', 0],
+  ])('counts every no-show of %s, however old', async (name, count) => {
+    const { api, clientId } = await signedInWithStore();
+
+    await expect(api.getClient(clientId(name))).resolves.toMatchObject({ noShowCount: count });
+  });
+
+  it('includes appointments with an inactive staff member', async () => {
+    const { api, byToken, clientId } = await signedInWithStore();
+    const sam = (await api.listStaff()).find((staffMember) => staffMember.name === 'Sam')!;
+    await api.updateStaffMember(sam.id, { isActive: false });
+
+    const { appointments } = await api.getClient(clientId('Ben Carter'));
+
+    expect(appointments.find((appointment) => appointment.id === byToken('demo-2').id)).toMatchObject({
+      staffMember: { id: sam.id, name: 'Sam' },
+    });
+  });
+
+  it('returns a new client with no appointments, then the one created for them', async () => {
+    const api = await signedInMockApi();
+    const client = await api.createClient({ name: 'Iris Moreau' });
+
+    await expect(api.getClient(client.id)).resolves.toEqual({ ...client, noShowCount: 0, appointments: [] });
+
+    const { appointment } = await api.createAppointment({ ...(await validAppointmentRequest(api)), clientId: client.id });
+
+    await expect(api.getClient(client.id)).resolves.toEqual({ ...client, noShowCount: 0, appointments: [appointment] });
   });
 });
 
