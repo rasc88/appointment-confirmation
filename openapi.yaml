@@ -468,6 +468,28 @@ paths:
   /appointments/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
+    get:
+      tags: [appointments]
+      operationId: getAppointment
+      summary: Get one appointment.
+      description: |
+        Returns the appointment in any status. It carries no at-risk reasons
+        and no confirmation link: the link is returned only on create and
+        regenerate (decision 5).
+      responses:
+        '200':
+          description: The appointment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+              examples:
+                AppointmentPending:
+                  $ref: '#/components/examples/AppointmentPending'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
     patch:
       tags: [appointments]
       operationId: updateAppointment

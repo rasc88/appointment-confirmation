@@ -230,3 +230,95 @@ select {
     z-index: 1;
   }
 }
+
+.new-appointment {
+  max-width: 640px;
+}
+
+.new-appointment section,
+.appointment-form {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.new-appointment h2 {
+  margin-top: 0;
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0 8px;
+}
+
+.inline-form .field {
+  flex: 1 1 200px;
+}
+
+.inline-form button {
+  margin-bottom: 16px;
+}
+
+.client-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.client-results button {
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.client-result-name {
+  font-weight: 600;
+}
+
+.new-client {
+  margin-top: 16px;
+}
+
+.chosen-client {
+  margin: 0;
+  font-weight: 600;
+}
+
+.field-hint {
+  margin: 4px 0 0;
+  color: #5f6368;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.created-details,
+.copy-texts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 16px;
+}
+
+.created-details dt,
+.copy-texts dt {
+  font-weight: 600;
+}
+
+.created-details dd,
+.copy-texts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

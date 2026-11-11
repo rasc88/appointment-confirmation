@@ -384,6 +384,7 @@ All endpoints are under `/v1` and defined in `openapi.yaml`. Errors use a single
 | GET | `/clients/{id}` | Client with history and no-show count |
 | GET | `/appointments?date=YYYY-MM-DD&staffId=` | Day view with at-risk reasons |
 | POST | `/appointments` | Create; returns the confirmation link once |
+| GET | `/appointments/{id}` | One appointment, for the edit page |
 | PATCH | `/appointments/{id}` | Edit fields |
 | POST | `/appointments/{id}/confirm` | Confirm by staff |
 | POST | `/appointments/{id}/cancel` | Cancel by staff |
