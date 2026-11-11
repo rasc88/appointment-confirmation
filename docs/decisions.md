@@ -290,6 +290,20 @@ as decision 27. `no-store` keeps a browser from showing a stale status
 after a confirm or cancel. Cost accepted: clients behind one shared
 address share the limit, and a restart clears the counters.
 
+### 30. Business settings are checked per field sent, in a fixed order, and written all or nothing
+
+`PATCH /v1/settings` checks only the fields sent, in the order
+`businessName`, `timeZone`, `noReplyWindowHours`, `noShowThreshold`,
+`noShowLookbackDays`, `lateCancellationHours`, `defaultDurationMinutes`,
+`messageTemplate`, then unknown keys, and reports the first failure. It
+writes nothing unless all pass. Concurrent writes are last-write-wins per
+field. A time zone is `UTC` or in `Intl.supportedValuesOf('timeZone')`,
+case-sensitive.
+
+Why: it matches the frontend mock (#9) so #14 is a swap, one field error
+is what the page can show, and the page offers exactly that zone set.
+Cost accepted: a zone name only one browser lists is rejected.
+
 ## Process
 
 ### 13. One agent at a time
