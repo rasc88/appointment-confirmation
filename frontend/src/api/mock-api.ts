@@ -5,13 +5,17 @@ import type {
   Appointment,
   AppointmentStatus,
   AppointmentWithLink,
+  BusinessSettings,
   Client,
   CreateAppointmentRequest,
   CreateClientRequest,
+  CreateStaffMemberRequest,
   DayAppointment,
   DayView,
   PublicAppointment,
   StaffMember,
+  UpdateSettingsRequest,
+  UpdateStaffMemberRequest,
 } from './types';
 
 function toStaffMember({ id, name, email, isActive, createdAt }: DemoStaffMember): StaffMember {
@@ -211,6 +215,128 @@ function getAppointment(store: DemoData, id: string): Appointment {
   return toAppointment(store, appointment);
 }
 
+function validationError(message: string, field?: string): ApiError {
+  return new ApiError(422, 'validation_error', message, field);
+}
+
+function hasLength(value: string, min: number, max: number): boolean {
+  const length = [...value].length;
+  return length >= min && length <= max;
+}
+
+const settingRanges = {
+  noReplyWindowHours: [1, 168],
+  noShowThreshold: [1, 10],
+  noShowLookbackDays: [7, 730],
+  lateCancellationHours: [0, 168],
+  defaultDurationMinutes: [5, 480],
+} as const;
+
+const placeholderPattern = /\{[^{}]*\}/g;
+const allowedPlaceholders = ['{client}', '{business}', '{service}', '{staff}', '{date}', '{time}', '{link}'];
+
+/** Same rules, order and messages as `validateMessageTemplate` in `backend/src/message-template.ts`. */
+function messageTemplateError(template: string): string | null {
+  if (!hasLength(template, 1, 500)) {
+    return 'Must be between 1 and 500 characters.';
+  }
+  const placeholders: string[] = template.match(placeholderPattern) ?? [];
+  const unknownPlaceholder = placeholders.find((placeholder) => !allowedPlaceholders.includes(placeholder));
+  if (unknownPlaceholder !== undefined) {
+    return `Unknown placeholder ${unknownPlaceholder}. Allowed: ${allowedPlaceholders.join(', ')}.`;
+  }
+  if (!placeholders.includes('{link}')) {
+    return 'Must contain {link}.';
+  }
+  return null;
+}
+
+function isTimeZone(value: string): boolean {
+  return value === 'UTC' || Intl.supportedValuesOf('timeZone').includes(value);
+}
+
+function assertValidSettings(body: UpdateSettingsRequest) {
+  if (Object.values(body).every((value) => value === undefined)) {
+    throw validationError('Change at least one setting.');
+  }
+  const { businessName, timeZone, messageTemplate } = body;
+  if (businessName !== undefined && !hasLength(businessName, 1, 80)) {
+    throw validationError('Must be between 1 and 80 characters.', 'businessName');
+  }
+  if (timeZone !== undefined && !isTimeZone(timeZone)) {
+    throw validationError('Must be an IANA time zone, for example Europe/Madrid.', 'timeZone');
+  }
+  for (const [field, [min, max]] of Object.entries(settingRanges)) {
+    const value = body[field as keyof typeof settingRanges];
+    if (value !== undefined && (!Number.isInteger(value) || value < min || value > max)) {
+      throw validationError(`Must be a whole number between ${min} and ${max}.`, field);
+    }
+  }
+  const templateError = messageTemplate === undefined ? null : messageTemplateError(messageTemplate);
+  if (templateError) {
+    throw validationError(templateError, 'messageTemplate');
+  }
+}
+
+function updateSettings(store: DemoData, body: UpdateSettingsRequest, now: Date): BusinessSettings {
+  assertValidSettings(body);
+  const changes = Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined));
+  store.settings = { ...store.settings, ...changes, updatedAt: now.toISOString() };
+  return structuredClone(store.settings);
+}
+
+const emailPattern = /^[^\s@]+@[^\s@]+$/;
+
+function createStaffMember(store: DemoData, { name, email, password }: CreateStaffMemberRequest, now: Date): StaffMember {
+  if (!hasLength(name, 1, 80)) {
+    throw validationError('Must be between 1 and 80 characters.', 'name');
+  }
+  if (email.length > 254 || !emailPattern.test(email)) {
+    throw validationError('Enter a valid email address.', 'email');
+  }
+  if (!hasLength(password, 8, 72)) {
+    throw validationError('Must be between 8 and 72 characters.', 'password');
+  }
+  const lowercaseEmail = email.toLowerCase();
+  if (store.staff.some((entry) => entry.email.toLowerCase() === lowercaseEmail)) {
+    throw new ApiError(409, 'email_taken', 'Another staff account already has this email.');
+  }
+  const staffMember: DemoStaffMember = {
+    id: crypto.randomUUID(),
+    name,
+    email: lowercaseEmail,
+    isActive: true,
+    createdAt: now.toISOString(),
+    password,
+  };
+  store.staff.push(staffMember);
+  return toStaffMember(staffMember);
+}
+
+function updateStaffMember(store: DemoData, id: string, body: UpdateStaffMemberRequest, signedInId: string): StaffMember {
+  const staffMember = store.staff.find((entry) => entry.id === id);
+  if (!staffMember) {
+    throw new ApiError(404, 'not_found', 'Not found.');
+  }
+  const { name, isActive } = body;
+  if (name === undefined && isActive === undefined) {
+    throw validationError('Change at least one field.');
+  }
+  if (name !== undefined && !hasLength(name, 1, 80)) {
+    throw validationError('Must be between 1 and 80 characters.', 'name');
+  }
+  if (isActive === false && id === signedInId) {
+    throw new ApiError(409, 'cannot_deactivate_self', 'You cannot deactivate your own account.');
+  }
+  if (name !== undefined) {
+    staffMember.name = name;
+  }
+  if (isActive !== undefined) {
+    staffMember.isActive = isActive;
+  }
+  return toStaffMember(staffMember);
+}
+
 function notImplemented(operationId: string): Promise<never> {
   return Promise.reject(new Error(`Not implemented in mock: ${operationId}`));
 }
@@ -248,8 +374,14 @@ export function createMockApi(options?: { now?: Date }): ApiService {
       assertSignedIn();
       return store.staff.map(toStaffMember);
     },
-    createStaffMember: () => notImplemented('createStaffMember'),
-    updateStaffMember: () => notImplemented('updateStaffMember'),
+    async createStaffMember(body) {
+      assertSignedIn();
+      return createStaffMember(store, body, currentTime());
+    },
+    async updateStaffMember(id, body) {
+      const signedIn = assertSignedIn();
+      return updateStaffMember(store, id, body, signedIn.id);
+    },
     async searchClients(q) {
       assertSignedIn();
       return searchClients(store, q);
@@ -281,7 +413,10 @@ export function createMockApi(options?: { now?: Date }): ApiService {
       assertSignedIn();
       return structuredClone(store.settings);
     },
-    updateSettings: () => notImplemented('updateSettings'),
+    async updateSettings(body) {
+      assertSignedIn();
+      return updateSettings(store, body, currentTime());
+    },
     async getPublicAppointment(token) {
       return toPublicAppointment(store, findByToken(store, token), currentTime());
     },

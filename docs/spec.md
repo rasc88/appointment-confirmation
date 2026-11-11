@@ -115,6 +115,7 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 - The session is a signed token in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie, valid for 12 hours.
 - Any signed-in staff member can add a staff account (name, email, initial password).
 - Staff accounts cannot be deleted in the MVP. They can be marked inactive, which blocks sign-in, hides them from the staff picker, and ends their existing sessions (their next request returns `401`).
+- An inactive account can be reactivated from the Staff page, and signs in again with its existing password.
 - A staff member cannot deactivate themselves (`409`), so the last active account cannot lock everyone out.
 
 ### 6.2 Clients

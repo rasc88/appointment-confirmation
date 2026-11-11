@@ -5,6 +5,7 @@ import { useApi } from '../api/api-context';
 import type { AppointmentWithLink, BusinessSettings, Client, StaffMember } from '../api/types';
 import { useAuth } from '../auth/auth-context';
 import { ConfirmationLink } from '../ConfirmationLink';
+import { errorProps, FieldError } from '../field-error';
 import { formatDate, formatTime, wallTimeToUtc } from '../format-date-time';
 
 const maxSearchResults = 20;
@@ -28,18 +29,6 @@ function isUnauthenticated(error: unknown): boolean {
 
 function isAppointmentField(field: string | undefined): field is AppointmentField {
   return appointmentFields.includes(field as AppointmentField);
-}
-
-function errorProps(id: string, error: string | undefined) {
-  return { 'aria-invalid': error ? true : undefined, 'aria-describedby': error ? `${id}-error` : undefined };
-}
-
-function FieldError({ id, error }: { id: string; error: string | undefined }) {
-  return error ? (
-    <p id={`${id}-error`} className="field-error">
-      {error}
-    </p>
-  ) : null;
 }
 
 function ClientSearch({ error, onChoose }: { error: string | undefined; onChoose(client: Client): void }) {
