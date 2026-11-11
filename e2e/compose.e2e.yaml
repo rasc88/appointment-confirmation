@@ -1,0 +1,9 @@
+services:
+  db:
+    ports: !reset []
+
+  app:
+    ports: !override
+      - "8085:3000"
+    environment:
+      PUBLIC_BASE_URL: http://localhost:8085

@@ -379,6 +379,39 @@ Two environments at those limits take 1.5 GB of the 2 GiB host (decision
 devDependencies, and a local database that has staff but no demo data is
 never reseeded automatically.
 
+### 34. End-to-end tests run in Chromium against a throwaway Compose project
+
+`npm run test:e2e` runs Playwright, with `@playwright/test` pinned to an
+exact version, in Chromium only. Its global setup builds and starts a
+separate Compose project `ac-e2e` from the root `docker-compose.yaml` plus
+`e2e/compose.e2e.yaml` (no db host port, `app` on host port 8085), after a
+`down -v` that clears an earlier crashed run; the global teardown removes
+it again with `down -v`. The suite runs with one worker and no retries.
+Time-dependent cases use short real waits, never test-only endpoints or a
+fake clock.
+
+Why: §16 is about the product behaving, not browser differences, and one
+browser keeps the install and run time in CI low. Each Playwright version
+expects one browser build, so an exact pin fetches the same Chromium
+locally and in CI. The dev project shares the `appointments` database with
+`npm run dev`, so the suite must never run in it; a separate project has
+its own containers, network, image, and `ac-e2e_db-data` volume, 8080 is
+the dev stack and 8081/8082 are reserved for the EC2 environments
+(decision 11), and dropping the db host port avoids a clash on 5432. An
+override rather than a copied Compose file keeps the e2e stack identical
+to what ships. A fresh volume each run lets the stack's own seed create
+demo data relative to now, which makes the tests repeatable. Tearing down
+`ac-e2e` with `down -v` is the one deletion this process makes without
+approval (an exception to "Nothing in this process deletes" in
+`docs/process.md`), and only of what the script itself created. Tokens are
+stored hashed (decision 5), so a link exists only in the UI that made it,
+and a test backdoor or fake clock would put test code into the production
+image; the expired-link case therefore waits once, at most about 2 min 15 s,
+for a start it chose, and the at-risk cases pick start times so the rule
+applies on read (decision 4). Business settings are one shared row that a
+test changes, so tests run one at a time, and a retry would hide a flaky
+test instead of fixing it.
+
 ## Process
 
 ### 13. One agent at a time

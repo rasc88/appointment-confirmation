@@ -10,6 +10,7 @@ COPY package.json package-lock.json ./
 COPY backend/package.json backend/prisma.config.ts backend/
 COPY backend/prisma/schema.prisma backend/prisma/
 COPY frontend/package.json frontend/
+COPY e2e/package.json e2e/
 RUN npm ci
 
 COPY . .
