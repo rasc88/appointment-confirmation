@@ -222,6 +222,48 @@ page. Hand-written types avoid a generator and a build step for about 20
 types. Cost accepted: the types can drift from the contract, which QA
 checks.
 
+### 25. Session tokens are HMAC-SHA256 signed JSON, valid 12 hours from sign-in
+
+The `session` cookie holds `base64url(JSON {staffId, expiresAt})`, a dot,
+and `base64url(HMAC-SHA256(SESSION_SECRET, first part))`, built with
+`node:crypto` only. `SESSION_SECRET` is required everywhere, at least 32
+characters, with no fallback in code. A session lasts a fixed 12 hours
+from sign-in, with no renewal. Rotating the secret signs everyone out.
+
+Why: zero dependencies and a few lines, and decision 17 needs only
+"signed and expiring"; JWT libraries add algorithm choices nobody needs.
+A code fallback for the secret could silently ship to a deployed
+environment.
+
+### 26. `PUBLIC_BASE_URL` is the app's own origin
+
+The Origin check rejects a write under `/v1` (except `/v1/public`) whose
+`Origin` header is present and is not `new URL(PUBLIC_BASE_URL).origin`.
+A request without `Origin` passes. The session cookie is `Secure` only
+when `PUBLIC_BASE_URL` is https.
+
+Why: one variable already names the public address (for confirmation
+links), and comparing `Origin` with `Host` is unreliable behind
+CloudFront. Browsers send `Origin` on every cross-site write, and
+`SameSite=Lax` already keeps the cookie off cross-site POSTs. Supertest
+and `http://localhost` stacks cannot send `Secure` cookies, so `Secure`
+follows the scheme.
+
+### 27. Sign-in is rate-limited in memory, per IP and email
+
+10 failed sign-ins within a fixed 15-minute window, keyed by `req.ip` and
+the lowercased email, return `429` until the window ends. Only failures
+count, and a success clears the key. `trust proxy` is `1` in every
+environment.
+
+Why: decision 11 runs a single instance, so an in-memory map is correct
+and needs no dependency; counting failures means a real user is never
+blocked by signing in normally. It is a security limit, not a business
+rule, so it is a constant, not a setting. CloudFront is the only hop and
+the security group admits only CloudFront (decision 11), so the
+rightmost `X-Forwarded-For` is the client. Cost accepted: a restart
+clears the counters, and locally a client can fake `X-Forwarded-For`.
+
 ## Process
 
 ### 13. One agent at a time

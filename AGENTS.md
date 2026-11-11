@@ -29,7 +29,11 @@ adds one, it does not exist yet - check `package.json` before relying on it.
 
 Use Node 24 (`nvm use` reads `.nvmrc`). `.env.example` lists the local
 settings: `DATABASE_URL` points at the Postgres that `docker compose up -d db`
-starts, and `PORT` is the backend port. Copy it to `.env` (ignored by git).
+starts, `PORT` is the backend port, `SESSION_SECRET` signs session cookies
+(at least 32 characters; the value there is local only), and
+`PUBLIC_BASE_URL` is the address the browser uses (`http://localhost:5173`).
+The backend exits on start when either of the last two is missing or
+invalid. Copy it to `.env` (ignored by git).
 `npm run dev`, `npm run db:migrate`, and `npm run db:seed` read `.env`; a
 value set in the shell wins, for example `PORT=3001 npm run dev`, and a
 missing `.env` is not an error. Tests ignore both and always use
