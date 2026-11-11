@@ -90,6 +90,17 @@ Why: numeric, so it reads the same in any message language, and it
 matches the `openapi.yaml` example and the Madrid demo business. A
 per-business date format is not in the MVP.
 
+### 22. The client page spells out the date
+
+`/c/{token}` shows the date as `Tuesday, 10 November 2026` and the time
+as `13:00, Europe/Madrid`, with `Intl.DateTimeFormat` in `en-GB` and the
+business time zone. Decision 20 still governs the message.
+
+Why: the client reads it on their own phone, possibly from another
+country, so a written month cannot be read month-first. Day before month
+matches decision 20's message text, and 24-hour time matches `{time}`.
+The UI is English only.
+
 ## Technical
 
 ### 7. Express 5 + TypeScript + Prisma + PostgreSQL everywhere
