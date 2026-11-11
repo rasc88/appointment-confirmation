@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
+import { isLateCancellation } from './at-risk.js';
 import { hashConfirmationToken } from './confirmation-token.js';
 import { prisma } from './db.js';
 import { createSessionToken } from './session.js';
@@ -11,6 +12,12 @@ const unauthenticated = { error: { code: 'unauthenticated', message: 'Sign in to
 const notFound = { error: { code: 'not_found', message: 'Not found.' } };
 const invalidTransition = { error: { code: 'invalid_transition', message: 'This appointment can no longer be changed.' } };
 const appointmentStarted = { error: { code: 'appointment_started', message: 'This appointment has already started.' } };
+const appointmentNotStarted = {
+  error: { code: 'appointment_not_started', message: 'This appointment has not started yet.' },
+};
+const outcomeMessage = 'Choose attended or no-show.';
+const startedAt = new Date('2026-11-10T09:00:00Z');
+const actions = ['confirm', 'cancel', 'outcome', 'undo-outcome'] as const;
 const unknownId = '00000000-0000-4000-8000-000000000000';
 const appointmentFields = [
   'cancelledBy',
@@ -85,6 +92,7 @@ describe('session', () => {
     ['get', `/v1/appointments/${unknownId}`],
     ['patch', '/v1/appointments/abc'],
     ['post', `/v1/appointments/${unknownId}/link`],
+    ...actions.map((action) => ['post', `/v1/appointments/${unknownId}/${action}`] as const),
   ] as const)('%s %s without a session is 401 before 404 or 422', async (method, path) => {
     const response = await request(app)[method](path).send({});
 
@@ -515,6 +523,371 @@ describe('privacy', () => {
     for (const secret of ['Maria Lopez', '+34 600 123 456', ...tokens]) {
       expect(logged).not.toContain(secret);
     }
+    for (const spy of spies) {
+      expect(spy).not.toHaveBeenCalled();
+    }
+  });
+});
+
+function storedRow(id: string) {
+  return prisma.appointment.findUniqueOrThrow({ where: { id } });
+}
+
+/** Checks a rejected request wrote nothing. */
+async function expectUnchanged(appointment: Awaited<ReturnType<typeof appointmentFor>>) {
+  const stored = await storedRow(appointment.id);
+  expect(stored.status).toBe(appointment.status);
+  expect(stored.updatedAt).toEqual(appointment.updatedAt);
+  expect(stored.statusChangedAt).toEqual(appointment.statusChangedAt);
+}
+
+describe.each(actions)('POST /v1/appointments/{id}/%s', (action) => {
+  it.each([unknownId, 'unknown'])('returns 404 for the id %j', async (id) => {
+    const response = await agent.post(`/v1/appointments/${id}/${action}`).send({ outcome: 'attended' });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual(notFound);
+  });
+
+  it('does not query for an id that is not UUID-shaped', async () => {
+    const findUnique = vi.spyOn(prisma.appointment, 'findUnique');
+
+    await agent.post(`/v1/appointments/unknown/${action}`);
+
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /v1/appointments/{id}/confirm', () => {
+  it('confirms a pending appointment by staff and returns the plain Appointment', async () => {
+    const appointment = await appointmentFor({ statusChangedAt: new Date('2026-11-09T08:00:00Z') });
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/confirm`);
+
+    expect(response.status).toBe(200);
+    const stored = await storedRow(appointment.id);
+    expect(response.body).toEqual({
+      id: appointment.id,
+      client: { id: maria.id, name: 'Maria Lopez', phone: '+34 600 123 456' },
+      staffMember: { id: alex.id, name: 'Alex' },
+      service: 'Haircut',
+      startsAt: '2026-11-11T09:30:00.000Z',
+      durationMinutes: 30,
+      status: 'confirmed',
+      confirmedBy: 'staff',
+      cancelledBy: null,
+      statusChangedAt: '2026-11-10T10:07:00.000Z',
+      createdAt: stored.createdAt.toISOString(),
+      updatedAt: stored.updatedAt.toISOString(),
+    });
+    expect(stored).toMatchObject({ status: 'confirmed', confirmedBy: 'staff', statusChangedAt: now });
+  });
+
+  it.each([['before', undefined], ['after', startedAt]] as const)(
+    'returns an already confirmed appointment unchanged %s the start',
+    async (_, startsAt) => {
+      const appointment = await appointmentFor({
+        status: 'confirmed',
+        confirmedBy: 'client',
+        statusChangedAt: new Date('2026-11-09T08:00:00Z'),
+        startsAt,
+      });
+
+      const response = await agent.post(`/v1/appointments/${appointment.id}/confirm`).send({ ignored: true });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        status: 'confirmed',
+        confirmedBy: 'client',
+        statusChangedAt: '2026-11-09T08:00:00.000Z',
+        updatedAt: appointment.updatedAt.toISOString(),
+      });
+      await expectUnchanged(appointment);
+    },
+  );
+
+  it.each(['2026-11-10T10:07:00Z', '2026-11-10T09:00:00Z'])(
+    'returns 409 appointment_started for a pending appointment starting %s',
+    async (startsAt) => {
+      const appointment = await appointmentFor({ startsAt: new Date(startsAt) });
+
+      const response = await agent.post(`/v1/appointments/${appointment.id}/confirm`);
+
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual(appointmentStarted);
+      await expectUnchanged(appointment);
+    },
+  );
+
+  it.each(finalStatuses)('returns 409 invalid_transition for a %s appointment before the start', async (status) => {
+    const appointment = await appointmentFor({ status });
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/confirm`);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual(invalidTransition);
+    await expectUnchanged(appointment);
+  });
+
+  it('returns 409 when the status changed after it was checked', async () => {
+    const appointment = await appointmentFor({ status: 'cancelled', cancelledBy: 'client' });
+    await loadAsIf(appointment.id, 'pending');
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/confirm`);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual(invalidTransition);
+    await expectUnchanged(appointment);
+  });
+
+  it('rejects a cross-site Origin with 403', async () => {
+    const appointment = await appointmentFor();
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/confirm`).set('Origin', 'https://evil.test');
+
+    expect(response.status).toBe(403);
+    await expectUnchanged(appointment);
+  });
+});
+
+describe('POST /v1/appointments/{id}/cancel', () => {
+  it.each([
+    ['pending', null],
+    ['confirmed', 'client'],
+  ] as const)('cancels a %s appointment by staff, keeping confirmedBy', async (status, confirmedBy) => {
+    const appointment = await appointmentFor({ status, confirmedBy });
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/cancel`).send({ ignored: true });
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(response.body).sort()).toEqual(appointmentFields);
+    const stored = await storedRow(appointment.id);
+    expect(response.body).toMatchObject({
+      status: 'cancelled',
+      cancelledBy: 'staff',
+      confirmedBy,
+      statusChangedAt: '2026-11-10T10:07:00.000Z',
+      updatedAt: stored.updatedAt.toISOString(),
+    });
+    expect(stored).toMatchObject({ status: 'cancelled', cancelledBy: 'staff', confirmedBy, statusChangedAt: now });
+  });
+
+  it.each(['pending', 'confirmed'] as const)('cancels a %s appointment after the start', async (status) => {
+    const appointment = await appointmentFor({ status, startsAt: startedAt });
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/cancel`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ status: 'cancelled', cancelledBy: 'staff' });
+  });
+
+  it.each(finalStatuses)('returns 409 invalid_transition for a %s appointment', async (status) => {
+    const appointment = await appointmentFor({ status });
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/cancel`);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual(invalidTransition);
+    await expectUnchanged(appointment);
+  });
+
+  it('stores the cancel time, so isLateCancellation reads it against the start', async () => {
+    const settings = { lateCancellationHours: 24 };
+    const late = await appointmentFor({ startsAt: new Date('2026-11-11T09:30:00Z') });
+    const afterStart = await appointmentFor({ startsAt: startedAt });
+    const early = await appointmentFor({ startsAt: new Date('2026-11-11T10:08:00Z') });
+
+    for (const { id } of [late, afterStart, early]) {
+      expect((await agent.post(`/v1/appointments/${id}/cancel`)).status).toBe(200);
+    }
+
+    expect(isLateCancellation(await storedRow(late.id), settings)).toBe(true);
+    expect(isLateCancellation(await storedRow(afterStart.id), settings)).toBe(true);
+    expect(isLateCancellation(await storedRow(early.id), settings)).toBe(false);
+  });
+
+  it('returns 409 when the status changed after it was checked', async () => {
+    const appointment = await appointmentFor({ status: 'cancelled', cancelledBy: 'client' });
+    await loadAsIf(appointment.id, 'pending');
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/cancel`);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual(invalidTransition);
+    expect(await storedRow(appointment.id)).toMatchObject({ cancelledBy: 'client', updatedAt: appointment.updatedAt });
+  });
+});
+
+describe('POST /v1/appointments/{id}/outcome', () => {
+  it.each([
+    ['pending', null, 'no_show', '2026-11-10T10:07:00Z'],
+    ['confirmed', 'client', 'attended', '2026-11-10T09:00:00Z'],
+  ] as const)('records a started %s appointment as %s', async (status, confirmedBy, outcome, startsAt) => {
+    const appointment = await appointmentFor({ status, confirmedBy, startsAt: new Date(startsAt) });
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/outcome`).send({ outcome });
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(response.body).sort()).toEqual(appointmentFields);
+    const stored = await storedRow(appointment.id);
+    expect(response.body).toMatchObject({
+      status: outcome,
+      confirmedBy,
+      cancelledBy: null,
+      statusChangedAt: '2026-11-10T10:07:00.000Z',
+      updatedAt: stored.updatedAt.toISOString(),
+    });
+    expect(stored).toMatchObject({ status: outcome, confirmedBy, cancelledBy: null, statusChangedAt: now });
+  });
+
+  it.each(finalStatuses)('returns 409 invalid_transition for a %s appointment, whatever the body', async (status) => {
+    const appointment = await appointmentFor({ status, startsAt: startedAt });
+
+    for (const change of [{ outcome: 'attended' }, { outcome: 'maybe' }]) {
+      const response = await agent.post(`/v1/appointments/${appointment.id}/outcome`).send(change);
+
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual(invalidTransition);
+    }
+    await expectUnchanged(appointment);
+  });
+
+  it.each(['pending', 'confirmed'] as const)(
+    'returns 409 appointment_not_started for a %s appointment, whatever the body',
+    async (status) => {
+      const appointment = await appointmentFor({ status, startsAt: new Date('2026-11-10T10:07:01Z') });
+
+      for (const change of [{ outcome: 'attended' }, { outcome: 'maybe' }]) {
+        const response = await agent.post(`/v1/appointments/${appointment.id}/outcome`).send(change);
+
+        expect(response.status).toBe(409);
+        expect(response.body).toEqual(appointmentNotStarted);
+      }
+      await expectUnchanged(appointment);
+    },
+  );
+
+  it.each([
+    [{}, outcomeMessage, 'outcome'],
+    [{ outcome: null }, outcomeMessage, 'outcome'],
+    [{ outcome: 'maybe' }, outcomeMessage, 'outcome'],
+    [{ outcome: 'cancelled' }, outcomeMessage, 'outcome'],
+    [{ outcome: 'maybe', note: 'x' }, outcomeMessage, 'outcome'],
+    [{ outcome: 'attended', note: 'x' }, 'Unknown field.', 'note'],
+    [[], 'Request body must be a JSON object.', undefined],
+  ])('rejects %j with only the first failure', async (change, message, field) => {
+    const appointment = await appointmentFor({ startsAt: startedAt });
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/outcome`).send(change);
+
+    expect(response.status).toBe(422);
+    expect(response.body).toEqual(validation(message, field));
+    await expectUnchanged(appointment);
+  });
+
+  it('returns 409 when the status changed after it was checked', async () => {
+    const appointment = await appointmentFor({ status: 'cancelled', cancelledBy: 'client', startsAt: startedAt });
+    await loadAsIf(appointment.id, 'confirmed');
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/outcome`).send({ outcome: 'no_show' });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual(invalidTransition);
+    await expectUnchanged(appointment);
+  });
+});
+
+describe('POST /v1/appointments/{id}/undo-outcome', () => {
+  it.each([
+    ['attended', 'client', 'confirmed'],
+    ['no_show', null, 'pending'],
+  ] as const)('puts a %s appointment with confirmedBy %s back to %s', async (status, confirmedBy, expected) => {
+    const appointment = await appointmentFor({ status, confirmedBy, startsAt: startedAt });
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/undo-outcome`).send({ ignored: true });
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(response.body).sort()).toEqual(appointmentFields);
+    const stored = await storedRow(appointment.id);
+    expect(response.body).toMatchObject({
+      status: expected,
+      confirmedBy,
+      statusChangedAt: '2026-11-10T10:07:00.000Z',
+      updatedAt: stored.updatedAt.toISOString(),
+    });
+    expect(stored).toMatchObject({ status: expected, confirmedBy, statusChangedAt: now });
+  });
+
+  it.each(['pending', 'confirmed', 'cancelled'] as const)(
+    'returns 409 invalid_transition for a %s appointment',
+    async (status) => {
+      const appointment = await appointmentFor({ status, startsAt: startedAt });
+
+      const response = await agent.post(`/v1/appointments/${appointment.id}/undo-outcome`);
+
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual(invalidTransition);
+      await expectUnchanged(appointment);
+    },
+  );
+
+  it('returns 409 when the status changed after it was checked', async () => {
+    const appointment = await appointmentFor({ status: 'pending', startsAt: startedAt });
+    await loadAsIf(appointment.id, 'attended');
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/undo-outcome`);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual(invalidTransition);
+    await expectUnchanged(appointment);
+  });
+});
+
+describe('appointment history', () => {
+  it('counts a no-show on the client and uncounts it after undo', async () => {
+    const appointment = await appointmentFor({ status: 'confirmed', confirmedBy: 'client', startsAt: startedAt });
+    const noShowCount = async () => (await agent.get(`/v1/clients/${maria.id}`)).body.noShowCount;
+
+    expect(await noShowCount()).toBe(0);
+    await agent.post(`/v1/appointments/${appointment.id}/outcome`).send({ outcome: 'no_show' });
+    expect(await noShowCount()).toBe(1);
+    await agent.post(`/v1/appointments/${appointment.id}/undo-outcome`);
+    expect(await noShowCount()).toBe(0);
+  });
+
+  it('goes from create through confirm, outcome and undo', async () => {
+    const created = await agent.post('/v1/appointments').send(body);
+    const path = `/v1/appointments/${created.body.appointment.id}`;
+
+    expect((await agent.post(`${path}/confirm`)).body).toMatchObject({ status: 'confirmed', confirmedBy: 'staff' });
+    now = new Date('2026-11-11T09:45:00Z');
+    expect((await agent.post(`${path}/outcome`).send({ outcome: 'attended' })).body).toMatchObject({
+      status: 'attended',
+      statusChangedAt: '2026-11-11T09:45:00.000Z',
+    });
+    now = new Date('2026-11-11T09:50:00Z');
+    expect((await agent.post(`${path}/undo-outcome`)).body).toMatchObject({
+      status: 'confirmed',
+      confirmedBy: 'staff',
+      cancelledBy: null,
+      statusChangedAt: '2026-11-11T09:50:00.000Z',
+    });
+  });
+
+  it('logs no client name, phone or token on any action', async () => {
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {}),
+    );
+    const appointment = await appointmentFor({ startsAt: startedAt });
+    const path = `/v1/appointments/${appointment.id}`;
+
+    await agent.post(`${path}/confirm`);
+    await agent.post(`${path}/outcome`).send({ outcome: 'maybe' });
+    await agent.post(`${path}/outcome`).send({ outcome: 'no_show' });
+    await agent.post(`${path}/undo-outcome`);
+    await agent.post(`${path}/cancel`);
+
+    expect((await storedRow(appointment.id)).status).toBe('cancelled');
     for (const spy of spies) {
       expect(spy).not.toHaveBeenCalled();
     }
