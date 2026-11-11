@@ -640,6 +640,18 @@ describe('POST /v1/appointments/{id}/confirm', () => {
     await expectUnchanged(appointment);
   });
 
+  it('returns 409 and keeps the client confirmation when the client confirmed after the check', async () => {
+    const statusChangedAt = new Date('2026-11-10T09:00:00Z');
+    const appointment = await appointmentFor({ status: 'confirmed', confirmedBy: 'client', statusChangedAt });
+    await loadAsIf(appointment.id, 'pending');
+
+    const response = await agent.post(`/v1/appointments/${appointment.id}/confirm`);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual(invalidTransition);
+    expect(await storedRow(appointment.id)).toMatchObject({ status: 'confirmed', confirmedBy: 'client', statusChangedAt });
+  });
+
   it('rejects a cross-site Origin with 403', async () => {
     const appointment = await appointmentFor();
 

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { appointmentInclude, loadAppointment, toAppointment, toAppointmentWithLink } from './appointments.js';
 import type { Config } from './config.js';
 import { generateConfirmationToken } from './confirmation-token.js';
+import { getDayView } from './day-view.js';
 import { prisma } from './db.js';
 import { ApiError, validationError } from './errors.js';
 import { Prisma, type AppointmentStatus } from './generated/prisma/client.js';
@@ -86,6 +87,10 @@ async function updateChangeable(
 export function createAppointmentRouter(config: Config, now: () => Date) {
   const router = Router();
   const signedIn = requireStaff(config.sessionSecret);
+
+  router.get('/appointments', signedIn, async (req, res) => {
+    res.json(await getDayView(req.query, now()));
+  });
 
   router.post('/appointments', signedIn, async (req, res) => {
     const requestTime = now();
