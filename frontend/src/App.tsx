@@ -3,6 +3,7 @@ import { Outlet, Route, Routes } from 'react-router';
 import { AuthProvider } from './auth/auth-context';
 import { RequireStaff } from './auth/RequireStaff';
 import { ClientAppointmentPage } from './pages/ClientAppointmentPage';
+import { DashboardPage } from './pages/DashboardPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { SignInPage } from './pages/SignInPage';
@@ -28,7 +29,7 @@ export function App() {
         }
       >
         <Route path="/sign-in" element={<SignInPage />} />
-        <Route path="/" element={staffPage(<PlaceholderPage title="Dashboard" />)} />
+        <Route path="/" element={staffPage(<DashboardPage />)} />
         <Route path="/appointments/new" element={staffPage(<PlaceholderPage title="New appointment" />)} />
         <Route path="/appointments/:id/edit" element={staffPage(<PlaceholderPage title="Edit appointment" />)} />
         <Route path="/clients/:id" element={staffPage(<PlaceholderPage title="Client" />)} />

@@ -124,6 +124,21 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
   });
 
+  it('lands on the dashboard when signing in again after signing out from another page', async () => {
+    const api = createMockApi();
+    renderApp('/sign-in', api);
+    await signIn('alex@demo.test', 'demo1234');
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('link', { name: 'Settings' }));
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+    await signIn('alex@demo.test', 'demo1234');
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+  });
+
   it('still signs out when logout fails', async () => {
     const api = createMockApi();
     vi.spyOn(api, 'logout').mockRejectedValue(new TypeError('Failed to fetch'));

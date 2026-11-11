@@ -1,4 +1,4 @@
-import type { Actor, Appointment, AppointmentStatus, BusinessSettings, Client, StaffMember } from './types';
+import type { Actor, AppointmentStatus, AtRiskReason, BusinessSettings, Client, DayAppointment, StaffMember } from './types';
 
 const minuteMs = 60_000;
 const hourMs = 60 * minuteMs;
@@ -10,7 +10,7 @@ export interface DemoStaffMember extends StaffMember {
 }
 
 /** Stores ids rather than the embedded client and staff member, so renames show everywhere. */
-export interface DemoAppointment extends Omit<Appointment, 'client' | 'staffMember'> {
+export interface DemoAppointment extends Omit<DayAppointment, 'client' | 'staffMember'> {
   clientId: string;
   staffMemberId: string;
   token: string;
@@ -45,23 +45,43 @@ interface SeedAppointment {
   cancelledBy?: Actor;
   /** Only cancellations set it; otherwise derived from the status. */
   statusChangedInMs?: number;
+  /** Fixed rather than computed (owner decision on #7): what `backend/src/at-risk.ts` gives the seed rows at seed time. */
+  atRiskReasons?: AtRiskReason[];
+  isLateCancellation?: boolean;
 }
 
 /** The same rows as `backend/prisma/seed.ts`. Offsets are from `now` rounded down to a 15-minute mark. */
 const seedAppointments: SeedAppointment[] = [
-  { client: 0, staff: 0, service: 'Haircut', startsInMs: 2 * hourMs, durationMinutes: 30, status: 'pending' },
+  { client: 0, staff: 0, service: 'Haircut', startsInMs: 2 * hourMs, durationMinutes: 30, status: 'pending', atRiskReasons: [{ code: 'no_reply' }] },
   { client: 1, staff: 1, service: 'Massage', startsInMs: 26 * hourMs, durationMinutes: 60, status: 'pending' },
   { client: 2, staff: 0, service: 'Colour', startsInMs: 3 * hourMs, durationMinutes: 90, status: 'confirmed', confirmedBy: 'client' },
   { client: 3, staff: 1, service: 'Haircut', startsInMs: 27 * hourMs, durationMinutes: 30, status: 'confirmed', confirmedBy: 'staff' },
-  { client: 6, staff: 0, service: 'Manicure', startsInMs: 4 * hourMs, durationMinutes: 45, status: 'cancelled', cancelledBy: 'client', statusChangedInMs: -hourMs },
+  { client: 6, staff: 0, service: 'Manicure', startsInMs: 4 * hourMs, durationMinutes: 45, status: 'cancelled', cancelledBy: 'client', statusChangedInMs: -hourMs, isLateCancellation: true },
   { client: 7, staff: 1, service: 'Massage', startsInMs: 28 * hourMs, durationMinutes: 60, status: 'cancelled', cancelledBy: 'staff', statusChangedInMs: -hourMs },
   { client: 6, staff: 1, service: 'Haircut', startsInMs: -3 * hourMs, durationMinutes: 30, status: 'attended' },
   { client: 4, staff: 0, service: 'Colour', startsInMs: -2 * hourMs, durationMinutes: 60, status: 'no_show' },
   { client: 1, staff: 0, service: 'Haircut', startsInMs: -hourMs, durationMinutes: 30, status: 'pending' },
-  { client: 4, staff: 1, service: 'Haircut', startsInMs: 25 * hourMs, durationMinutes: 30, status: 'confirmed', confirmedBy: 'client' },
+  {
+    client: 4,
+    staff: 1,
+    service: 'Haircut',
+    startsInMs: 25 * hourMs,
+    durationMinutes: 30,
+    status: 'confirmed',
+    confirmedBy: 'client',
+    atRiskReasons: [{ code: 'no_show_history', noShowCount: 1 }],
+  },
   { client: 5, staff: 0, service: 'Massage', startsInMs: -20 * dayMs, durationMinutes: 60, status: 'no_show' },
   { client: 5, staff: 1, service: 'Massage', startsInMs: -60 * dayMs, durationMinutes: 60, status: 'no_show' },
-  { client: 5, staff: 0, service: 'Manicure', startsInMs: 5 * hourMs, durationMinutes: 45, status: 'pending' },
+  {
+    client: 5,
+    staff: 0,
+    service: 'Manicure',
+    startsInMs: 5 * hourMs,
+    durationMinutes: 45,
+    status: 'pending',
+    atRiskReasons: [{ code: 'no_reply' }, { code: 'no_show_history', noShowCount: 2 }],
+  },
 ];
 
 function statusChangedAt(appointment: SeedAppointment, startsAtMs: number, createdAtMs: number) {
@@ -121,6 +141,8 @@ export function buildDemoData(now: Date): DemoData {
       statusChangedAt: new Date(statusChangedAt(appointment, startsAtMs, createdAtMs)).toISOString(),
       createdAt: new Date(createdAtMs).toISOString(),
       updatedAt: nowIso,
+      atRiskReasons: appointment.atRiskReasons ?? [],
+      isLateCancellation: appointment.isLateCancellation ?? false,
       token: `demo-${index + 1}`,
     };
   });
