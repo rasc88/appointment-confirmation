@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from './api-error';
 import { buildDemoData, type DemoData } from './demo-data';
 import type { ApiService } from './api-service';
-import type { CreateAppointmentRequest, DayAppointment } from './types';
+import type { CreateAppointmentRequest, DayAppointment, UpdateSettingsRequest } from './types';
 import { createMockApi } from './mock-api';
 
 vi.mock('./demo-data', { spy: true });
@@ -72,7 +72,7 @@ describe('createMockApi', () => {
   });
 
   it('rejects operations later issues implement', async () => {
-    await expect(createMockApi().updateSettings({})).rejects.toThrow('Not implemented in mock: updateSettings');
+    await expect(createMockApi().getClient('unknown')).rejects.toThrow('Not implemented in mock: getClient');
   });
 });
 
@@ -722,5 +722,359 @@ describe('buildDemoData', () => {
     expect(data.appointments.map((appointment) => appointment.token)).toEqual(
       Array.from({ length: 13 }, (_, index) => `demo-${index + 1}`),
     );
+  });
+});
+
+function validationMessage(field: string, message: string) {
+  return { status: 422, code: 'validation_error', field, message };
+}
+
+describe('createMockApi updateSettings', () => {
+  it.each([
+    ['updateSettings', (api: ApiService) => api.updateSettings({})],
+    ['createStaffMember', (api: ApiService) => api.createStaffMember({ name: '', email: '', password: '' })],
+    ['updateStaffMember', (api: ApiService) => api.updateStaffMember('unknown', {})],
+  ])('rejects %s with 401 before any other check when nobody is signed in', async (_operation, call) => {
+    const error = await call(createMockApi({ now })).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 401, code: 'unauthenticated' });
+  });
+
+  it('rejects an empty body with no field', async () => {
+    const api = await signedInMockApi();
+
+    const error = await api.updateSettings({}).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 422, code: 'validation_error', message: 'Change at least one setting.', field: undefined });
+  });
+
+  it.each([
+    ['noReplyWindowHours', 1, 168],
+    ['noShowThreshold', 1, 10],
+    ['noShowLookbackDays', 7, 730],
+    ['lateCancellationHours', 0, 168],
+    ['defaultDurationMinutes', 5, 480],
+  ] as const)('accepts %s from %i to %i only, as whole numbers', async (field, min, max) => {
+    const api = await signedInMockApi();
+    const message = `Must be a whole number between ${min} and ${max}.`;
+
+    await expect(api.updateSettings({ [field]: min })).resolves.toMatchObject({ [field]: min });
+    await expect(api.updateSettings({ [field]: max })).resolves.toMatchObject({ [field]: max });
+    for (const value of [min - 1, max + 1, 1.5]) {
+      await expect(api.updateSettings({ [field]: value })).rejects.toMatchObject(validationMessage(field, message));
+    }
+  });
+
+  it.each(['', 'x'.repeat(81)])('rejects the business name %j', async (businessName) => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateSettings({ businessName })).rejects.toMatchObject(
+      validationMessage('businessName', 'Must be between 1 and 80 characters.'),
+    );
+  });
+
+  it('counts the business name in code points', async () => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateSettings({ businessName: '😀'.repeat(80) })).resolves.toMatchObject({ businessName: '😀'.repeat(80) });
+  });
+
+  it.each(['Mars/Base', 'europe/madrid', '+01:00'])('rejects the time zone %j', async (timeZone) => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateSettings({ timeZone })).rejects.toMatchObject(
+      validationMessage('timeZone', 'Must be an IANA time zone, for example Europe/Madrid.'),
+    );
+  });
+
+  it.each(['UTC', 'America/New_York'])('accepts the time zone %j', async (timeZone) => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateSettings({ timeZone })).resolves.toMatchObject({ timeZone });
+  });
+
+  it('accepts a 500-code-point template with emoji and rejects 501', async () => {
+    const api = await signedInMockApi();
+    const template = `{link}${'😀'.repeat(494)}`;
+
+    await expect(api.updateSettings({ messageTemplate: template })).resolves.toMatchObject({ messageTemplate: template });
+    await expect(api.updateSettings({ messageTemplate: `${template}😀` })).rejects.toMatchObject(
+      validationMessage('messageTemplate', 'Must be between 1 and 500 characters.'),
+    );
+    await expect(api.updateSettings({ messageTemplate: '' })).rejects.toMatchObject(
+      validationMessage('messageTemplate', 'Must be between 1 and 500 characters.'),
+    );
+  });
+
+  it.each(['{Link}', '{ link }'])('rejects %j as an unknown placeholder', async (placeholder) => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateSettings({ messageTemplate: `Hi ${placeholder} {link}` })).rejects.toMatchObject(
+      validationMessage(
+        'messageTemplate',
+        `Unknown placeholder ${placeholder}. Allowed: {client}, {business}, {service}, {staff}, {date}, {time}, {link}.`,
+      ),
+    );
+  });
+
+  it('accepts a lone { as text and rejects a template without {link}', async () => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateSettings({ messageTemplate: 'Reply { here: {link}' })).resolves.toMatchObject({
+      messageTemplate: 'Reply { here: {link}',
+    });
+    await expect(api.updateSettings({ messageTemplate: 'Hi {client}' })).rejects.toMatchObject(
+      validationMessage('messageTemplate', 'Must contain {link}.'),
+    );
+  });
+
+  it('checks the fields in order and reports the first failure', async () => {
+    const api = await signedInMockApi();
+    const body: UpdateSettingsRequest = { businessName: '', timeZone: 'Mars/Base', noShowThreshold: 0, messageTemplate: '' };
+
+    await expect(api.updateSettings(body)).rejects.toMatchObject({ field: 'businessName' });
+    await expect(api.updateSettings({ ...body, businessName: 'Ok' })).rejects.toMatchObject({ field: 'timeZone' });
+    await expect(api.updateSettings({ ...body, businessName: 'Ok', timeZone: 'UTC' })).rejects.toMatchObject({
+      field: 'noShowThreshold',
+    });
+  });
+
+  it('writes nothing when any field fails', async () => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateSettings({ businessName: 'New Name', noShowThreshold: 0 })).rejects.toMatchObject({
+      field: 'noShowThreshold',
+    });
+
+    await expect(api.getSettings()).resolves.toMatchObject({ businessName: 'Demo Studio', noShowThreshold: 1 });
+  });
+
+  it('writes only the fields sent and returns a copy of the full settings', async () => {
+    const api = await signedInMockApi();
+    const before = await api.getSettings();
+
+    const updated = await api.updateSettings({ noReplyWindowHours: 48 });
+
+    expect(updated).toEqual({ ...before, noReplyWindowHours: 48 });
+    updated.businessName = 'Changed';
+    await expect(api.getSettings()).resolves.toEqual({ ...before, noReplyWindowHours: 48 });
+  });
+
+  it('sets updatedAt to now', async () => {
+    const { api, store } = createMockApiWithStore();
+    await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+    store.settings.updatedAt = '2026-01-01T00:00:00.000Z';
+
+    await expect(api.updateSettings({ noShowThreshold: 2 })).resolves.toMatchObject({ updatedAt: now.toISOString() });
+  });
+
+  it('decides today and the day boundaries in the new time zone', async () => {
+    const api = await signedInMockApi({ now: new Date('2026-11-10T03:00:00Z') });
+    const body = await validAppointmentRequest(api);
+    await api.createAppointment({ ...body, startsAt: '2026-11-11T02:00:00.000Z' });
+
+    expect((await api.getDayView({ date: '2026-11-10' })).appointments.map(({ startsAt }) => startsAt)).not.toContain(
+      '2026-11-11T02:00:00.000Z',
+    );
+    await api.updateSettings({ timeZone: 'America/New_York' });
+
+    const today = await api.getDayView({});
+    expect(today).toMatchObject({ date: '2026-11-09', timeZone: 'America/New_York' });
+    expect((await api.getDayView({ date: '2026-11-10' })).appointments.map(({ startsAt }) => startsAt)).toContain(
+      '2026-11-11T02:00:00.000Z',
+    );
+  });
+
+  it('shows the new business name on the client page', async () => {
+    const api = await signedInMockApi();
+
+    await api.updateSettings({ businessName: 'New Studio' });
+
+    await expect(api.getPublicAppointment('demo-1')).resolves.toMatchObject({ businessName: 'New Studio' });
+  });
+
+  it('uses the new default duration for a new appointment', async () => {
+    const api = await signedInMockApi();
+    const body = await validAppointmentRequest(api);
+    delete body.durationMinutes;
+
+    await api.updateSettings({ defaultDurationMinutes: 45 });
+
+    const created = await api.createAppointment(body);
+    expect(created.appointment.durationMinutes).toBe(45);
+  });
+});
+
+async function staffByName(api: ApiService, name: string) {
+  return (await api.listStaff()).find((staffMember) => staffMember.name === name)!;
+}
+
+describe('createMockApi createStaffMember', () => {
+  const jordan = { name: 'Jordan', email: 'Jordan@Demo.test', password: 'secret123' };
+
+  it.each([
+    [{ ...jordan, name: '' }, 'name', 'Must be between 1 and 80 characters.'],
+    [{ ...jordan, name: 'x'.repeat(81) }, 'name', 'Must be between 1 and 80 characters.'],
+    [{ ...jordan, email: 'jordan' }, 'email', 'Enter a valid email address.'],
+    [{ ...jordan, email: 'jor dan@demo.test' }, 'email', 'Enter a valid email address.'],
+    [{ ...jordan, email: `${'x'.repeat(245)}@demo.test` }, 'email', 'Enter a valid email address.'],
+    [{ ...jordan, password: '1234567' }, 'password', 'Must be between 8 and 72 characters.'],
+    [{ ...jordan, password: 'x'.repeat(73) }, 'password', 'Must be between 8 and 72 characters.'],
+    [{ name: '', email: 'bad', password: '' }, 'name', 'Must be between 1 and 80 characters.'],
+    [{ ...jordan, email: 'bad', password: '' }, 'email', 'Enter a valid email address.'],
+    [{ ...jordan, email: 'alex@demo.test', password: '' }, 'password', 'Must be between 8 and 72 characters.'],
+  ])('rejects %j with 422 on %s', async (body, field, message) => {
+    const api = await signedInMockApi();
+
+    await expect(api.createStaffMember(body)).rejects.toMatchObject(validationMessage(field, message));
+    expect(await api.listStaff()).toHaveLength(2);
+  });
+
+  it('accepts lengths at the limits, counted in code points', async () => {
+    const api = await signedInMockApi();
+
+    await expect(
+      api.createStaffMember({ name: '😀'.repeat(80), email: `${'x'.repeat(244)}@demo.test`, password: '😀'.repeat(72) }),
+    ).resolves.toMatchObject({ name: '😀'.repeat(80) });
+    await expect(api.createStaffMember({ name: 'Kim', email: 'kim@demo.test', password: '12345678' })).resolves.toMatchObject({
+      name: 'Kim',
+    });
+  });
+
+  it.each(['SAM@demo.test', 'sam@demo.test'])('rejects the email %j already used, with 409 email_taken', async (email) => {
+    const api = await signedInMockApi();
+
+    const error = await api.createStaffMember({ ...jordan, email }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 409, code: 'email_taken', message: 'Another staff account already has this email.' });
+  });
+
+  it('rejects the email of an inactive account', async () => {
+    const api = await signedInMockApi();
+    await api.updateStaffMember((await staffByName(api, 'Sam')).id, { isActive: false });
+
+    await expect(api.createStaffMember({ ...jordan, email: 'sam@demo.test' })).rejects.toMatchObject({ status: 409, code: 'email_taken' });
+  });
+
+  it('stores the account and returns exactly the StaffMember fields', async () => {
+    const { api, store } = createMockApiWithStore();
+    await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+
+    const created = await api.createStaffMember(jordan);
+
+    expect(created).toEqual({ id: expect.any(String), name: 'Jordan', email: 'jordan@demo.test', isActive: true, createdAt: now.toISOString() });
+    expect(Object.keys(created).sort()).toEqual(['createdAt', 'email', 'id', 'isActive', 'name']);
+    expect(store.staff.at(-1)).toMatchObject({ id: created.id, password: 'secret123' });
+    expect(await api.listStaff()).toContainEqual(created);
+  });
+
+  it('lets the new account sign in with the email in any case and take appointments', async () => {
+    const api = await signedInMockApi();
+    const created = await api.createStaffMember(jordan);
+    const body = await validAppointmentRequest(api);
+
+    await expect(api.createAppointment({ ...body, staffMemberId: created.id })).resolves.toMatchObject({
+      appointment: { staffMember: { id: created.id, name: 'Jordan' } },
+    });
+    await api.logout();
+    await expect(api.login({ email: 'JORDAN@demo.TEST', password: 'secret123' })).resolves.toEqual(created);
+  });
+});
+
+describe('createMockApi updateStaffMember', () => {
+  it.each(['unknown', '', '00000000-0000-4000-8000-000000000000'])('rejects the unknown id %j with 404', async (id) => {
+    const api = await signedInMockApi();
+
+    await expect(api.updateStaffMember(id, { isActive: false })).rejects.toMatchObject({ status: 404, code: 'not_found' });
+  });
+
+  it('rejects an empty body with no field', async () => {
+    const api = await signedInMockApi();
+    const sam = await staffByName(api, 'Sam');
+
+    await expect(api.updateStaffMember(sam.id, {})).rejects.toMatchObject({
+      status: 422,
+      code: 'validation_error',
+      message: 'Change at least one field.',
+      field: undefined,
+    });
+  });
+
+  it.each(['', 'x'.repeat(81)])('rejects the name %j and writes nothing', async (name) => {
+    const api = await signedInMockApi();
+    const sam = await staffByName(api, 'Sam');
+
+    await expect(api.updateStaffMember(sam.id, { name, isActive: false })).rejects.toMatchObject(
+      validationMessage('name', 'Must be between 1 and 80 characters.'),
+    );
+    await expect(staffByName(api, 'Sam')).resolves.toMatchObject({ isActive: true });
+  });
+
+  it('rejects deactivating yourself with 409 and writes nothing', async () => {
+    const api = await signedInMockApi();
+    const alex = await staffByName(api, 'Alex');
+
+    const error = await api.updateStaffMember(alex.id, { name: 'Alexandra', isActive: false }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 409, code: 'cannot_deactivate_self', message: 'You cannot deactivate your own account.' });
+    await expect(staffByName(api, 'Alex')).resolves.toMatchObject({ isActive: true });
+  });
+
+  it('checks the name before deactivating yourself', async () => {
+    const api = await signedInMockApi();
+    const alex = await staffByName(api, 'Alex');
+
+    await expect(api.updateStaffMember(alex.id, { name: '', isActive: false })).rejects.toMatchObject({ status: 422, field: 'name' });
+  });
+
+  it('renames an account and returns a copy', async () => {
+    const api = await signedInMockApi();
+    const alex = await staffByName(api, 'Alex');
+
+    const updated = await api.updateStaffMember(alex.id, { name: 'Alexandra' });
+
+    expect(updated).toEqual({ ...alex, name: 'Alexandra' });
+    updated.name = 'Changed';
+    await expect(api.getCurrentStaffMember()).resolves.toMatchObject({ name: 'Alexandra' });
+  });
+
+  it('deactivates and reactivates another account', async () => {
+    const api = await signedInMockApi();
+    const sam = await staffByName(api, 'Sam');
+    const body = await validAppointmentRequest(api);
+    const samAppointments = (await api.getDayView({})).appointments.filter((entry) => entry.staffMember.id === sam.id).length;
+
+    await expect(api.updateStaffMember(sam.id, { isActive: false })).resolves.toEqual({ ...sam, isActive: false });
+
+    await expect(staffByName(api, 'Sam')).resolves.toMatchObject({ isActive: false });
+    await expect(api.createAppointment({ ...body, staffMemberId: sam.id })).rejects.toMatchObject(validationField('staffMemberId'));
+    expect((await api.getDayView({})).appointments.filter((entry) => entry.staffMember.id === sam.id)).toHaveLength(samAppointments);
+    expect(samAppointments).toBeGreaterThan(0);
+    await api.logout();
+    await expect(api.login({ email: 'sam@demo.test', password: 'demo1234' })).rejects.toMatchObject({
+      status: 401,
+      code: 'invalid_credentials',
+    });
+
+    await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+    await expect(api.updateStaffMember(sam.id, { isActive: true })).resolves.toEqual(sam);
+    await api.logout();
+    await expect(api.login({ email: 'sam@demo.test', password: 'demo1234' })).resolves.toEqual(sam);
+  });
+
+  it('rejects the next call of a signed-in member who was deactivated', async () => {
+    const { api, store } = createMockApiWithStore();
+    await api.login({ email: 'sam@demo.test', password: 'demo1234' });
+    store.staff.find((entry) => entry.name === 'Sam')!.isActive = false;
+
+    await expect(api.updateSettings({ noShowThreshold: 2 })).rejects.toMatchObject({ status: 401, code: 'unauthenticated' });
+    await expect(api.createStaffMember({ name: 'Kim', email: 'kim@demo.test', password: '12345678' })).rejects.toMatchObject({
+      status: 401,
+      code: 'unauthenticated',
+    });
   });
 });
