@@ -1020,7 +1020,10 @@ components:
       description: |
         `validation_error`: the request failed validation. `field` names the
         request field or query parameter that failed. A body that is not
-        valid JSON, not a JSON object, or over 100 kB has no `field`.
+        valid JSON, not a JSON object, over 100 kB, or cannot be read (an
+        unsupported charset or content encoding, corrupt compression), or a
+        string containing a NUL character, is 422 `validation_error` without
+        `field`.
       content:
         application/json:
           schema:

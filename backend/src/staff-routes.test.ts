@@ -166,7 +166,7 @@ describe('POST /v1/staff', () => {
 });
 
 describe('PATCH /v1/staff/{id}', () => {
-  it.each(['unknown', '00000000-0000-4000-8000-000000000000'])('returns 404 for the id %j', async (id) => {
+  it.each(['unknown', '%00', '00000000-0000-4000-8000-000000000000'])('returns 404 for the id %j', async (id) => {
     const response = await agent.patch(`/v1/staff/${id}`).send({ isActive: false });
 
     expect(response.status).toBe(404);

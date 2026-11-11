@@ -6,7 +6,7 @@ import { ApiError } from './errors.js';
 import { Prisma, type StaffMember } from './generated/prisma/client.js';
 import { hashPassword } from './passwords.js';
 import { requireStaff } from './session.js';
-import { parseBody, stringOfLength } from './validation.js';
+import { isUuidShaped, parseBody, stringOfLength } from './validation.js';
 
 export function toStaffMember({ id, name, email, isActive, createdAt }: StaffMember) {
   return { id, name, email, isActive, createdAt: createdAt.toISOString() };
@@ -61,7 +61,7 @@ export function createStaffRouter(config: Config) {
 
   router.patch('/staff/:id', signedIn, async (req, res) => {
     const { id } = req.params as { id: string };
-    if (!(await prisma.staffMember.findUnique({ where: { id } }))) {
+    if (!isUuidShaped(id) || !(await prisma.staffMember.findUnique({ where: { id } }))) {
       throw new ApiError(404, 'not_found', 'Not found.');
     }
     const body = parseBody(updateStaffMemberSchema, req.body);

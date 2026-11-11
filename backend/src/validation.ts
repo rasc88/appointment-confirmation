@@ -12,6 +12,17 @@ export function stringOfLength(min: number, max: number, message: string) {
   return z.string({ error: message }).refine((value) => hasLength(value, min, max), message);
 }
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Checked before querying, so a malformed id, even one with a NUL, is a 404 or names its field. */
+export function isUuidShaped(value: string) {
+  return uuidPattern.test(value);
+}
+
+export function uuidString(message: string) {
+  return z.string({ error: message }).regex(uuidPattern, message);
+}
+
 /** Only the first failing field is reported; unknown keys come after the contract's fields. */
 export function parseBody<Schema extends z.ZodType>(schema: Schema, body: unknown): z.output<Schema> {
   const value = body === undefined ? {} : body;

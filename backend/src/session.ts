@@ -42,7 +42,8 @@ export function verifySessionToken(token: string, secret: string): string | null
   const [payload, signature] = parts;
   const expected = sign(payload, secret);
   const actual = Buffer.from(signature, 'base64url');
-  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+  const isCanonical = actual.toString('base64url') === signature;
+  if (!isCanonical || actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
     return null;
   }
   const parsed = parsePayload(payload);

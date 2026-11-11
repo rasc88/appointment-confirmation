@@ -120,7 +120,7 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 
 ### 6.2 Clients
 - A client has a name and an optional phone number.
-- Staff can search clients by name or phone when creating an appointment.
+- Staff can search clients by name or phone when creating an appointment (case-insensitive substring, at most 20 results sorted by name; without a search term, the first 20 clients by name).
 - A client page lists their appointments and their no-show count.
 
 ### 6.3 Appointments
@@ -371,7 +371,7 @@ Indexes: `Appointment(startsAt)`, `Appointment(clientId, status)`, unique `Appoi
 
 ## 12. API Surface
 
-All endpoints are under `/v1` and defined in `openapi.yaml`. Errors use a single JSON shape: `{ "error": { "code", "message", "field"? } }`. `field` is present only on `422` and names the request field or query parameter that failed. A request body that is not valid JSON, not a JSON object, or over 100 kB is `422 validation_error` without `field`.
+All endpoints are under `/v1` and defined in `openapi.yaml`. Errors use a single JSON shape: `{ "error": { "code", "message", "field"? } }`. `field` is present only on `422` and names the request field or query parameter that failed. A body that is not valid JSON, not a JSON object, over 100 kB, or cannot be read (an unsupported charset or content encoding, corrupt compression), or a string containing a NUL character, is 422 `validation_error` without `field`.
 
 ### 12.1 Staff (session cookie required)
 | Method | Path | Purpose |

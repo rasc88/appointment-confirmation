@@ -12,6 +12,14 @@ const invalidCredentials = { error: { code: 'invalid_credentials', message: 'Ema
 const unauthenticated = { error: { code: 'unauthenticated', message: 'Sign in to continue.' } };
 const rateLimited = { error: { code: 'rate_limited', message: 'Too many requests. Try again later.' } };
 
+const base64urlAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/** The signature's last character carries 2 unused bits, so this still decodes to the same bytes. */
+function flipUnusedBit(token: string) {
+  const last = base64urlAlphabet.indexOf(token.at(-1)!);
+  return `${token.slice(0, -1)}${base64urlAlphabet[last ^ 1]}`;
+}
+
 function login(app: ReturnType<typeof createApp>, body: object, ip = '203.0.113.1') {
   return request(app).post('/v1/auth/login').set('X-Forwarded-For', ip).send(body);
 }
@@ -117,6 +125,21 @@ describe('POST /v1/auth/login', () => {
 
   it('accepts empty strings as a wrong sign-in, since the contract has no length rules', async () => {
     expect((await login(createApp(), { email: '', password: '' })).status).toBe(401);
+  });
+
+  it('returns 422 for a NUL in the email, logs nothing, and does not count it as a failure', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const app = createApp();
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      const response = await login(app, { email: 'kim\u0000@test.test', password: 'x' });
+
+      expect(response.status).toBe(422);
+      expect(response.body).toEqual({
+        error: { code: 'validation_error', message: 'Text must not contain the NUL character.' },
+      });
+    }
+
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it('writes no log line on sign-in', async () => {
@@ -298,6 +321,8 @@ describe('GET /v1/auth/me', () => {
     ['another secret', (id: string) => `session=${createSessionToken(id, 'z'.repeat(32))}`],
     ['an unknown id', () => `session=${createSessionToken('00000000-0000-4000-8000-000000000000', sessionSecret)}`],
     ['an empty session cookie', () => 'session='],
+    ['a signature with = appended', (id: string) => `session=${createSessionToken(id, sessionSecret)}=`],
+    ['a signature changed in its unused bits', (id: string) => `session=${flipUnusedBit(createSessionToken(id, sessionSecret))}`],
   ])('returns 401 for %s', async (_label, cookieFor) => {
     const staffMember = await createTestStaff();
     const cookie = cookieFor(staffMember.id);

@@ -1,6 +1,8 @@
 import type { Express } from 'express';
 import request from 'supertest';
+import { generateConfirmationToken } from './confirmation-token.js';
 import { prisma } from './db.js';
+import type { Actor, AppointmentStatus } from './generated/prisma/client.js';
 import { hashPassword } from './passwords.js';
 
 export const testPassword = 'password123';
@@ -34,6 +36,37 @@ export async function createTestStaff(
   return prisma.staffMember.create({
     data: { name, email, passwordHash: await cachedPasswordHash(password), isActive: options.isActive },
   });
+}
+
+export function createTestClient(options: { name?: string; phone?: string | null } = {}) {
+  const { name = 'Maria Lopez', phone = null } = options;
+  return prisma.client.create({ data: { name, phone } });
+}
+
+/** Any status and any `startsAt`, including the past; returns the row with its token. */
+export async function createTestAppointment(options: {
+  clientId: string;
+  staffMemberId: string;
+  service?: string;
+  startsAt?: Date;
+  durationMinutes?: number;
+  status?: AppointmentStatus;
+  confirmedBy?: Actor | null;
+  cancelledBy?: Actor | null;
+  statusChangedAt?: Date;
+}) {
+  const { token, tokenHash } = generateConfirmationToken();
+  const {
+    service = 'Haircut',
+    startsAt = new Date('2026-11-11T09:30:00Z'),
+    durationMinutes = 30,
+    status = 'pending',
+    ...rest
+  } = options;
+  const appointment = await prisma.appointment.create({
+    data: { ...rest, service, startsAt, durationMinutes, status, tokenHash },
+  });
+  return { ...appointment, token };
 }
 
 /** Returns an agent that carries the session cookie. */

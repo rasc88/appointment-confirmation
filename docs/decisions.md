@@ -264,6 +264,16 @@ the security group admits only CloudFront (decision 11), so the
 rightmost `X-Forwarded-For` is the client. Cost accepted: a restart
 clears the counters, and locally a client can fake `X-Forwarded-For`.
 
+### 28. Appointment endpoints check session, existence, state, then body
+
+Every staff appointment action checks 401, then 404, then 409, then 422,
+so a request on an appointment that can no longer change gets 409 whatever
+its body. Malformed JSON is still 422 first, from the JSON parser.
+
+Why: it matches the frontend mock (#32, #34), and the state is what the UI
+reloads on. Cost accepted: a malformed body on a cancelled appointment
+reports the state, not the field.
+
 ## Process
 
 ### 13. One agent at a time
