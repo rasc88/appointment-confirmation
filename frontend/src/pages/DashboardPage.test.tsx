@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -108,9 +108,12 @@ describe('DashboardPage day view', () => {
   it('shows today in six groups with counts, in the business time zone', async () => {
     await renderDashboard(await createSignedInApi());
 
-    expect(screen.getByText('Times in Europe/Madrid')).toBeInTheDocument();
+    const bar = document.querySelector('.dashboard-bar') as HTMLElement;
+    expect(within(bar).getByLabelText('Date')).toBeInTheDocument();
+    expect(within(bar).getByLabelText('Staff')).toBeInTheDocument();
+    expect(within(bar).getByText('Times in Europe/Madrid')).toBeInTheDocument();
     expect(
-      screen.getByText('At risk 2, Pending 0, Confirmed 1, Cancelled 1, Needs outcome 1, Completed 2'),
+      within(bar).getByText('At risk 2, Pending 0, Confirmed 1, Cancelled 1, Needs outcome 1, Completed 2'),
     ).toBeInTheDocument();
     expect(summaries()).toEqual([
       'At risk (2)',

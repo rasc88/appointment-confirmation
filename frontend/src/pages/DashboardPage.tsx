@@ -80,15 +80,18 @@ function AppointmentItem({ appointment, group, timeZone }: { appointment: DayApp
   );
 }
 
-function DayGroups({ dayView, loadedAt }: { dayView: DayView; loadedAt: number }) {
-  const groups = groupNames.map((name) => ({
+type Group = { name: GroupName; appointments: DayAppointment[] };
+
+function groupAppointments(dayView: DayView, loadedAt: number): Group[] {
+  return groupNames.map((name) => ({
     name,
     appointments: dayView.appointments.filter((appointment) => groupOf(appointment, loadedAt) === name),
   }));
+}
+
+function DayGroups({ dayView, groups }: { dayView: DayView; groups: Group[] }) {
   return (
     <>
-      <p className="dashboard-meta">{`Times in ${dayView.timeZone}`}</p>
-      <p className="dashboard-meta">{groups.map(({ name, appointments }) => `${name} ${appointments.length}`).join(', ')}</p>
       {dayView.appointments.length === 0 && <p>No appointments on this day.</p>}
       {groups.map(({ name, appointments }) => (
         <details key={name} open className="dashboard-group">
@@ -195,6 +198,7 @@ export function DashboardPage() {
   }
 
   const shownDate = date || (view.kind === 'loaded' ? view.dayView.date : '');
+  const groups = view.kind === 'loaded' ? groupAppointments(view.dayView, view.loadedAt) : [];
 
   return (
     <div className="dashboard">
@@ -232,6 +236,14 @@ export function DashboardPage() {
             </select>
           </div>
         </div>
+        {view.kind === 'loaded' && (
+          <>
+            <p className="dashboard-meta">{`Times in ${view.dayView.timeZone}`}</p>
+            <p className="dashboard-meta">
+              {groups.map(({ name, appointments }) => `${name} ${appointments.length}`).join(', ')}
+            </p>
+          </>
+        )}
         {view.kind === 'loaded' && hasRefreshFailed && <p role="status">Could not refresh. Trying again in 30 seconds.</p>}
       </div>
       {view.kind === 'loading' && <p role="status">Loading appointments…</p>}
@@ -243,7 +255,7 @@ export function DashboardPage() {
           </button>
         </>
       )}
-      {view.kind === 'loaded' && <DayGroups dayView={view.dayView} loadedAt={view.loadedAt} />}
+      {view.kind === 'loaded' && <DayGroups dayView={view.dayView} groups={groups} />}
     </div>
   );
 }
