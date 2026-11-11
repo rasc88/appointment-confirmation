@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from './api-error';
 import { buildDemoData, type DemoData } from './demo-data';
-import type { DayAppointment } from './types';
+import type { ApiService } from './api-service';
+import type { CreateAppointmentRequest, DayAppointment } from './types';
 import { createMockApi } from './mock-api';
 
 vi.mock('./demo-data', { spy: true });
@@ -13,7 +14,7 @@ function createMockApiWithStore() {
   const api = createMockApi({ now });
   const store = vi.mocked(buildDemoData).mock.results.at(-1)?.value as DemoData;
   const byToken = (token: string) => store.appointments.find((appointment) => appointment.token === token)!;
-  return { api, byToken };
+  return { api, byToken, store };
 }
 
 describe('createMockApi', () => {
@@ -71,7 +72,7 @@ describe('createMockApi', () => {
   });
 
   it('rejects operations later issues implement', async () => {
-    await expect(createMockApi().getSettings()).rejects.toThrow('Not implemented in mock: getSettings');
+    await expect(createMockApi().updateSettings({})).rejects.toThrow('Not implemented in mock: updateSettings');
   });
 });
 
@@ -428,6 +429,272 @@ describe('createMockApi staff list and day view', () => {
     const second = await api.getDayView({});
     expect(second.appointments).toHaveLength(7);
     expect(second.appointments[3]).toMatchObject({ client: { name: 'Ana Torres' }, atRiskReasons: [{ code: 'no_reply' }] });
+  });
+});
+
+function validationField(field: string) {
+  return { status: 422, code: 'validation_error', field };
+}
+
+describe('createMockApi settings, clients and appointments', () => {
+  it.each([
+    ['getSettings', (api: ApiService) => api.getSettings()],
+    ['searchClients', (api: ApiService) => api.searchClients('')],
+    ['createClient', (api: ApiService) => api.createClient({ name: '' })],
+    ['createAppointment', (api: ApiService) => api.createAppointment({ clientId: '', staffMemberId: '', service: '', startsAt: '' })],
+    ['getAppointment', (api: ApiService) => api.getAppointment('unknown')],
+  ])('rejects %s with 401 before any other check when nobody is signed in', async (_operation, call) => {
+    const error = await call(createMockApi({ now })).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 401, code: 'unauthenticated' });
+  });
+
+  it('returns the demo settings as a copy', async () => {
+    const api = await signedInMockApi();
+
+    const settings = await api.getSettings();
+    settings.businessName = 'Changed';
+
+    await expect(api.getSettings()).resolves.toMatchObject({
+      businessName: 'Demo Studio',
+      timeZone: 'Europe/Madrid',
+      defaultDurationMinutes: 30,
+      noReplyWindowHours: 24,
+    });
+  });
+
+  it.each([
+    ['ana', ['Ana Torres']],
+    ['000 020', ['Chloe Martin']],
+    ['RUIZ', ['David Ruiz']],
+  ])('finds clients matching %j by name or phone', async (q, names) => {
+    const api = await signedInMockApi();
+
+    const clients = await api.searchClients(q);
+
+    expect(clients.map((client) => client.name)).toEqual(names);
+  });
+
+  it('does not match a null phone', async () => {
+    const api = await signedInMockApi();
+
+    const clients = await api.searchClients('+34');
+
+    expect(clients.map((client) => client.name)).not.toContain('David Ruiz');
+    expect(clients).toHaveLength(7);
+  });
+
+  it('returns at most 20 clients sorted by name without q', async () => {
+    const api = await signedInMockApi();
+    for (let index = 0; index < 17; index += 1) {
+      await api.createClient({ name: `Zed ${String(index).padStart(2, '0')}` });
+    }
+
+    const clients = await api.searchClients();
+
+    const names = clients.map((client) => client.name);
+    expect(names).toHaveLength(20);
+    expect(names.slice(0, 8)).toEqual([
+      'Ana Torres',
+      'Ben Carter',
+      'Chloe Martin',
+      'David Ruiz',
+      'Elena Sousa',
+      'Felix Novak',
+      'Grace Lee',
+      'Hugo Blanc',
+    ]);
+    expect(names.slice(8)).toEqual(Array.from({ length: 12 }, (_, index) => `Zed ${String(index).padStart(2, '0')}`));
+  });
+
+  it.each(['', 'x'.repeat(81)])('rejects the search %j with 422 on q', async (q) => {
+    const api = await signedInMockApi();
+
+    await expect(api.searchClients(q)).rejects.toMatchObject(validationField('q'));
+  });
+
+  it('creates a client that search finds afterwards', async () => {
+    const api = await signedInMockApi();
+
+    const client = await api.createClient({ name: 'Iris Moreau', phone: '+33 (0) 6-12' });
+
+    expect(client).toEqual({ id: expect.any(String), name: 'Iris Moreau', phone: '+33 (0) 6-12', createdAt: now.toISOString() });
+    await expect(api.searchClients('iris')).resolves.toEqual([client]);
+  });
+
+  it.each([undefined, null])('stores a phone of %j as null', async (phone) => {
+    const api = await signedInMockApi();
+
+    await expect(api.createClient({ name: 'Iris Moreau', phone })).resolves.toMatchObject({ phone: null });
+  });
+
+  it.each([
+    [{ name: '' }, 'name'],
+    [{ name: 'x'.repeat(81) }, 'name'],
+    [{ name: 'Iris', phone: 'abc' }, 'phone'],
+    [{ name: 'Iris', phone: '' }, 'phone'],
+    [{ name: 'Iris', phone: '1'.repeat(31) }, 'phone'],
+  ])('rejects the client %j with 422 on %s', async (body, field) => {
+    const api = await signedInMockApi();
+
+    await expect(api.createClient(body)).rejects.toMatchObject(validationField(field));
+  });
+});
+
+async function validAppointmentRequest(api: ApiService): Promise<CreateAppointmentRequest> {
+  const [ana] = await api.searchClients('Ana Torres');
+  const alex = (await api.listStaff()).find((staffMember) => staffMember.name === 'Alex')!;
+  return { clientId: ana.id, staffMemberId: alex.id, service: 'Haircut', startsAt: '2026-11-10T17:00:00.000Z', durationMinutes: 45 };
+}
+
+describe('createMockApi createAppointment and getAppointment', () => {
+  it('creates a pending appointment and returns it with its link and message', async () => {
+    const { api, store } = createMockApiWithStore();
+    await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+    const body = await validAppointmentRequest(api);
+
+    const created = await api.createAppointment(body);
+
+    const stored = store.appointments.at(-1)!;
+    expect(stored).toMatchObject({
+      clientId: body.clientId,
+      staffMemberId: body.staffMemberId,
+      status: 'pending',
+      atRiskReasons: [],
+      isLateCancellation: false,
+    });
+    expect(stored.token).not.toMatch(/^demo-/);
+    expect(Object.keys(created.appointment).sort()).toEqual([
+      'cancelledBy',
+      'client',
+      'confirmedBy',
+      'createdAt',
+      'durationMinutes',
+      'id',
+      'service',
+      'staffMember',
+      'startsAt',
+      'status',
+      'statusChangedAt',
+      'updatedAt',
+    ]);
+    expect(created.appointment).toEqual({
+      id: stored.id,
+      client: { id: body.clientId, name: 'Ana Torres', phone: '+34 600 000 000' },
+      staffMember: { id: body.staffMemberId, name: 'Alex' },
+      service: 'Haircut',
+      startsAt: '2026-11-10T17:00:00.000Z',
+      durationMinutes: 45,
+      status: 'pending',
+      confirmedBy: null,
+      cancelledBy: null,
+      statusChangedAt: now.toISOString(),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+    expect(created.confirmationLink).toBe(`${window.location.origin}/c/${stored.token}`);
+    expect(created.message).toBe(`Please confirm your appointment: ${created.confirmationLink}`);
+  });
+
+  it('gives each appointment a new token', async () => {
+    const api = await signedInMockApi();
+    const body = await validAppointmentRequest(api);
+
+    const first = await api.createAppointment(body);
+    const second = await api.createAppointment(body);
+
+    expect(first.confirmationLink).not.toBe(second.confirmationLink);
+  });
+
+  it('defaults the duration to the settings value', async () => {
+    const api = await signedInMockApi();
+    const body = await validAppointmentRequest(api);
+    delete body.durationMinutes;
+
+    const created = await api.createAppointment(body);
+
+    expect(created.appointment.durationMinutes).toBe(30);
+  });
+
+  it('shows the new appointment in the day view, on the client page and by id', async () => {
+    const api = await signedInMockApi();
+
+    const { appointment, confirmationLink } = await api.createAppointment(await validAppointmentRequest(api));
+
+    const { appointments } = await api.getDayView({ date: '2026-11-10' });
+    expect(appointments.find((entry) => entry.id === appointment.id)).toMatchObject({
+      status: 'pending',
+      atRiskReasons: [],
+      isLateCancellation: false,
+    });
+    const token = confirmationLink.split('/c/')[1];
+    await expect(api.getPublicAppointment(token)).resolves.toMatchObject({ service: 'Haircut', status: 'pending' });
+    await expect(api.getAppointment(appointment.id)).resolves.toEqual(appointment);
+  });
+
+  it.each([
+    ['an unknown clientId', { clientId: 'unknown' }, 'clientId'],
+    ['an unknown staffMemberId', { staffMemberId: '00000000-0000-4000-8000-000000000000' }, 'staffMemberId'],
+    ['an empty service', { service: '' }, 'service'],
+    ['a service over 80 characters', { service: 'x'.repeat(81) }, 'service'],
+    ['a malformed startsAt', { startsAt: '2026-11-10 18:00' }, 'startsAt'],
+    ['a startsAt equal to now', { startsAt: now.toISOString() }, 'startsAt'],
+    ['a startsAt in the past', { startsAt: '2026-11-10T09:00:00.000Z' }, 'startsAt'],
+    ['a duration under 5', { durationMinutes: 4 }, 'durationMinutes'],
+    ['a duration over 480', { durationMinutes: 481 }, 'durationMinutes'],
+    ['a fractional duration', { durationMinutes: 30.5 }, 'durationMinutes'],
+    ['an unknown clientId and an empty service', { clientId: 'unknown', service: '' }, 'clientId'],
+    ['an empty service and a past startsAt', { service: '', startsAt: '2026-11-10T09:00:00.000Z' }, 'service'],
+    ['a past startsAt and a bad duration', { startsAt: '2026-11-10T09:00:00.000Z', durationMinutes: 1 }, 'startsAt'],
+  ])('rejects %s with 422 on the first failing field', async (_case, change, field) => {
+    const { api, store } = createMockApiWithStore();
+    await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+    const count = store.appointments.length;
+
+    const error = await api
+      .createAppointment({ ...(await validAppointmentRequest(api)), ...change })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject(validationField(field));
+    expect(store.appointments).toHaveLength(count);
+  });
+
+  it('rejects an inactive staff member with 422 on staffMemberId', async () => {
+    const { api, store } = createMockApiWithStore();
+    await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+    const body = await validAppointmentRequest(api);
+    store.staff[1].isActive = false;
+
+    await expect(api.createAppointment({ ...body, staffMemberId: store.staff[1].id })).rejects.toMatchObject(
+      validationField('staffMemberId'),
+    );
+  });
+
+  it.each([
+    ['pending', 'demo-1'],
+    ['cancelled', 'demo-5'],
+  ])('returns a %s appointment by id in the Appointment shape', async (status, token) => {
+    const { api, byToken } = createMockApiWithStore();
+    await api.login({ email: 'alex@demo.test', password: 'demo1234' });
+
+    const appointment = await api.getAppointment(byToken(token).id);
+
+    expect(appointment).toMatchObject({ id: byToken(token).id, status });
+    expect(appointment).not.toHaveProperty('atRiskReasons');
+    expect(appointment).not.toHaveProperty('isLateCancellation');
+    expect(appointment).not.toHaveProperty('token');
+    expect(appointment).not.toHaveProperty('clientId');
+  });
+
+  it.each(['unknown', '', '00000000-0000-4000-8000-000000000000'])('rejects the unknown id %j with 404', async (id) => {
+    const api = await signedInMockApi();
+
+    const error = await api.getAppointment(id).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 404, code: 'not_found' });
   });
 });
 

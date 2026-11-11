@@ -30,6 +30,7 @@ export interface ApiService {
   getClient(id: string): Promise<ClientDetail>;
   getDayView(params: { date?: string; staffId?: string }): Promise<DayView>;
   createAppointment(body: CreateAppointmentRequest): Promise<AppointmentWithLink>;
+  getAppointment(id: string): Promise<Appointment>;
   updateAppointment(id: string, body: UpdateAppointmentRequest): Promise<Appointment>;
   confirmAppointment(id: string): Promise<Appointment>;
   cancelAppointment(id: string): Promise<Appointment>;

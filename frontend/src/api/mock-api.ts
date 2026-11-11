@@ -1,7 +1,18 @@
 import { ApiError } from './api-error';
 import type { ApiService } from './api-service';
 import { buildDemoData, type DemoAppointment, type DemoData, type DemoStaffMember } from './demo-data';
-import type { AppointmentStatus, DayAppointment, DayView, PublicAppointment, StaffMember } from './types';
+import type {
+  Appointment,
+  AppointmentStatus,
+  AppointmentWithLink,
+  Client,
+  CreateAppointmentRequest,
+  CreateClientRequest,
+  DayAppointment,
+  DayView,
+  PublicAppointment,
+  StaffMember,
+} from './types';
 
 function toStaffMember({ id, name, email, isActive, createdAt }: DemoStaffMember): StaffMember {
   return structuredClone({ id, name, email, isActive, createdAt });
@@ -56,13 +67,11 @@ function dateInZone(iso: string | Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone }).format(new Date(iso));
 }
 
-/** Keeps the stored reasons only where the contract allows them (decision 19). */
-function toDayAppointment(store: DemoData, appointment: DemoAppointment, now: Date): DayAppointment {
+function toAppointment(store: DemoData, appointment: DemoAppointment): Appointment {
   const { id, service, startsAt, durationMinutes, status, confirmedBy, cancelledBy, statusChangedAt, createdAt, updatedAt } =
     appointment;
   const client = store.clients.find((entry) => entry.id === appointment.clientId)!;
   const staffMember = store.staff.find((entry) => entry.id === appointment.staffMemberId)!;
-  const canBeAtRisk = (status === 'pending' || status === 'confirmed') && !hasStarted(appointment, now);
   return structuredClone({
     id,
     client: { id: client.id, name: client.name, phone: client.phone },
@@ -76,11 +85,20 @@ function toDayAppointment(store: DemoData, appointment: DemoAppointment, now: Da
     statusChangedAt,
     createdAt,
     updatedAt,
+  });
+}
+
+/** Keeps the stored reasons only where the contract allows them (decision 19). */
+function toDayAppointment(store: DemoData, appointment: DemoAppointment, now: Date): DayAppointment {
+  const { status } = appointment;
+  const canBeAtRisk = (status === 'pending' || status === 'confirmed') && !hasStarted(appointment, now);
+  return {
+    ...toAppointment(store, appointment),
     atRiskReasons: canBeAtRisk
-      ? appointment.atRiskReasons.filter((reason) => reason.code !== 'no_reply' || status === 'pending')
+      ? structuredClone(appointment.atRiskReasons.filter((reason) => reason.code !== 'no_reply' || status === 'pending'))
       : [],
     isLateCancellation: status === 'cancelled' && appointment.isLateCancellation,
-  });
+  };
 }
 
 function getDayView(store: DemoData, params: { date?: string; staffId?: string }, now: Date): DayView {
@@ -99,6 +117,98 @@ function getDayView(store: DemoData, params: { date?: string; staffId?: string }
     .sort((first, second) => Date.parse(first.startsAt) - Date.parse(second.startsAt))
     .map((appointment) => toDayAppointment(store, appointment, now));
   return { date: day, timeZone, appointments };
+}
+
+const maxSearchResults = 20;
+
+function searchClients(store: DemoData, q: string | undefined): Client[] {
+  if (q !== undefined && (q.length < 1 || q.length > 80)) {
+    throw new ApiError(422, 'validation_error', 'Enter 1 to 80 characters to search.', 'q');
+  }
+  const needle = q?.toLowerCase();
+  const matches = store.clients.filter(
+    ({ name, phone }) =>
+      needle === undefined || name.toLowerCase().includes(needle) || (phone?.includes(needle) ?? false),
+  );
+  return structuredClone(matches.sort((first, second) => first.name.localeCompare(second.name)).slice(0, maxSearchResults));
+}
+
+const phonePattern = /^[0-9+() -]+$/;
+
+function createClient(store: DemoData, { name, phone }: CreateClientRequest, now: Date): Client {
+  if (name.length < 1 || name.length > 80) {
+    throw new ApiError(422, 'validation_error', "Enter the client's name, up to 80 characters.", 'name');
+  }
+  if (phone != null && (phone.length > 30 || !phonePattern.test(phone))) {
+    throw new ApiError(422, 'validation_error', 'Use only digits, spaces, +, ( ) and -, up to 30 characters.', 'phone');
+  }
+  const client: Client = { id: crypto.randomUUID(), name, phone: phone ?? null, createdAt: now.toISOString() };
+  store.clients.push(client);
+  return structuredClone(client);
+}
+
+const dateTimePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/i;
+
+/** Checks in a fixed order and reports only the first failure. */
+function assertValidNewAppointment(store: DemoData, body: CreateAppointmentRequest, now: Date) {
+  const { clientId, staffMemberId, service, startsAt, durationMinutes } = body;
+  if (!store.clients.some((client) => client.id === clientId)) {
+    throw new ApiError(422, 'validation_error', 'Choose a client.', 'clientId');
+  }
+  if (!store.staff.some((staffMember) => staffMember.id === staffMemberId && staffMember.isActive)) {
+    throw new ApiError(422, 'validation_error', 'Choose an active staff member.', 'staffMemberId');
+  }
+  if (service.length < 1 || service.length > 80) {
+    throw new ApiError(422, 'validation_error', 'Enter the service, up to 80 characters.', 'service');
+  }
+  const startsAtMs = Date.parse(startsAt);
+  if (!dateTimePattern.test(startsAt) || Number.isNaN(startsAtMs)) {
+    throw new ApiError(422, 'validation_error', 'Enter a valid date and time.', 'startsAt');
+  }
+  if (startsAtMs <= now.getTime()) {
+    throw new ApiError(422, 'validation_error', 'Choose a time in the future.', 'startsAt');
+  }
+  if (durationMinutes !== undefined && (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 480)) {
+    throw new ApiError(422, 'validation_error', 'Enter a duration from 5 to 480 minutes.', 'durationMinutes');
+  }
+}
+
+/** The message is fixed rather than rendered from the settings template; the backend renders the real one (#11). */
+function createAppointment(store: DemoData, body: CreateAppointmentRequest, now: Date): AppointmentWithLink {
+  assertValidNewAppointment(store, body, now);
+  const nowIso = now.toISOString();
+  const appointment: DemoAppointment = {
+    id: crypto.randomUUID(),
+    clientId: body.clientId,
+    staffMemberId: body.staffMemberId,
+    service: body.service,
+    startsAt: new Date(body.startsAt).toISOString(),
+    durationMinutes: body.durationMinutes ?? store.settings.defaultDurationMinutes,
+    status: 'pending',
+    confirmedBy: null,
+    cancelledBy: null,
+    statusChangedAt: nowIso,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    atRiskReasons: [],
+    isLateCancellation: false,
+    token: crypto.randomUUID(),
+  };
+  store.appointments.push(appointment);
+  const confirmationLink = `${window.location.origin}/c/${appointment.token}`;
+  return {
+    appointment: toAppointment(store, appointment),
+    confirmationLink,
+    message: `Please confirm your appointment: ${confirmationLink}`,
+  };
+}
+
+function getAppointment(store: DemoData, id: string): Appointment {
+  const appointment = store.appointments.find((entry) => entry.id === id);
+  if (!appointment) {
+    throw new ApiError(404, 'not_found', 'Not found.');
+  }
+  return toAppointment(store, appointment);
 }
 
 function notImplemented(operationId: string): Promise<never> {
@@ -140,21 +250,37 @@ export function createMockApi(options?: { now?: Date }): ApiService {
     },
     createStaffMember: () => notImplemented('createStaffMember'),
     updateStaffMember: () => notImplemented('updateStaffMember'),
-    searchClients: () => notImplemented('searchClients'),
-    createClient: () => notImplemented('createClient'),
+    async searchClients(q) {
+      assertSignedIn();
+      return searchClients(store, q);
+    },
+    async createClient(body) {
+      assertSignedIn();
+      return createClient(store, body, currentTime());
+    },
     getClient: () => notImplemented('getClient'),
     async getDayView(params) {
       assertSignedIn();
       return getDayView(store, params, currentTime());
     },
-    createAppointment: () => notImplemented('createAppointment'),
+    async createAppointment(body) {
+      assertSignedIn();
+      return createAppointment(store, body, currentTime());
+    },
+    async getAppointment(id) {
+      assertSignedIn();
+      return getAppointment(store, id);
+    },
     updateAppointment: () => notImplemented('updateAppointment'),
     confirmAppointment: () => notImplemented('confirmAppointment'),
     cancelAppointment: () => notImplemented('cancelAppointment'),
     recordAppointmentOutcome: () => notImplemented('recordAppointmentOutcome'),
     undoAppointmentOutcome: () => notImplemented('undoAppointmentOutcome'),
     regenerateAppointmentLink: () => notImplemented('regenerateAppointmentLink'),
-    getSettings: () => notImplemented('getSettings'),
+    async getSettings() {
+      assertSignedIn();
+      return structuredClone(store.settings);
+    },
     updateSettings: () => notImplemented('updateSettings'),
     async getPublicAppointment(token) {
       return toPublicAppointment(store, findByToken(store, token), currentTime());

@@ -116,6 +116,18 @@ still rejects a late action with `409`.
 Why: a card in two groups double-counts and invites two different actions
 on one appointment.
 
+### 24. Start times are typed as wall-clock time in the business time zone
+
+The appointment form reads its `datetime-local` value in
+`settings.timeZone`, not the browser's zone, and converts it to UTC with
+`Intl`. A time skipped by a DST change is rejected; a time that happens
+twice takes the earlier one.
+
+Why: staff book in the business's local time wherever their browser is.
+Rejecting a gap is clearer than silently moving the time. The earlier of
+two is what `Temporal`'s default does, and it is rare enough not to need a
+choice in the UI.
+
 ## Technical
 
 ### 7. Express 5 + TypeScript + Prisma + PostgreSQL everywhere
