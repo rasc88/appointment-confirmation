@@ -129,7 +129,7 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 - The client of an appointment cannot be changed after creation. The link has already gone to that client; staff cancel and create a new appointment instead.
 - A new start time, on create or edit, must be in the future.
 - Staff can confirm a `pending` appointment before its start time. The confirmation records that it was confirmed by staff.
-- Staff can cancel a `pending` or `confirmed` appointment. The cancellation records that it was cancelled by staff.
+- Staff can cancel a `pending` or `confirmed` appointment. The cancellation records that it was cancelled by staff. The dashboard offers it only before the start time (decision 23).
 
 ### 6.4 Confirmation Link
 - The link is `/c/{token}`, where the token is at least 128 bits of cryptographically random data, URL-safe encoded.
@@ -234,7 +234,7 @@ Placeholders: `{client}`, `{business}`, `{service}`, `{staff}`, `{date}`, `{time
 | Sign in | ✅ | ✅ | ✅ |
 | View dashboard, clients, history | — | — | ✅ |
 | Create / edit appointments | — | — | ✅ |
-| Confirm / cancel from the dashboard | — | — | ✅ (confirm before start) |
+| Confirm / cancel from the dashboard | — | — | ✅ (before start) |
 | Mark attended / no-show | — | — | ✅ |
 | Add or deactivate staff | — | — | ✅ |
 | View and edit business settings | — | — | ✅ |
