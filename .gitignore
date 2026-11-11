@@ -4,3 +4,5 @@ coverage/
 .env
 .claude/settings.local.json
 backend/src/generated/
+e2e/test-results/
+e2e/playwright-report/

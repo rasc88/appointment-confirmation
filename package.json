@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "backend",
-    "frontend"
+    "frontend",
+    "e2e"
   ],
   "engines": {
     "node": ">=24"
@@ -16,7 +17,8 @@
     "db:migrate": "npm run db:migrate -w backend --",
     "db:seed": "npm run db:seed -w backend",
     "db:seed:if-empty": "npm run db:seed:if-empty -w backend",
-    "test": "npm test --workspaces",
+    "test": "npm test -w backend -w frontend",
+    "test:e2e": "npm run test:e2e -w e2e",
     "lint": "eslint . && npm run lint:openapi",
     "lint:openapi": "redocly lint openapi.yaml",
     "typecheck": "npm run typecheck --workspaces"
