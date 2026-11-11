@@ -2,14 +2,14 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { ApiProvider } from './api/api-context';
-import { createMockApi } from './api/mock-api';
+import { createHttpApi } from './api/http-api';
 import { App } from './App';
 import './styles.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <ApiProvider api={createMockApi()}>
+      <ApiProvider api={createHttpApi()}>
         <App />
       </ApiProvider>
     </BrowserRouter>

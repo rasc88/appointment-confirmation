@@ -10,6 +10,8 @@
     "node": ">=24"
   },
   "scripts": {
+    "build": "npm run build -w frontend",
+    "start": "npm start -w backend",
     "dev": "concurrently --names backend,frontend --prefix-colors blue,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
     "db:migrate": "npm run db:migrate -w backend --",
     "db:seed": "npm run db:seed -w backend",

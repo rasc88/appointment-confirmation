@@ -31,12 +31,13 @@ Use Node 24 (`nvm use` reads `.nvmrc`). `.env.example` lists the local
 settings: `DATABASE_URL` points at the Postgres that `docker compose up -d db`
 starts, `PORT` is the backend port, `SESSION_SECRET` signs session cookies
 (at least 32 characters; the value there is local only), and
-`PUBLIC_BASE_URL` is the address the browser uses (`http://localhost:5173`).
+`PUBLIC_BASE_URL` is the address the browser uses (`http://localhost:5173`
+under `npm run dev`, the backend's own address under `npm start`).
 The backend exits on start when either of the last two is missing or
 invalid. Copy it to `.env` (ignored by git).
-`npm run dev`, `npm run db:migrate`, and `npm run db:seed` read `.env`; a
-value set in the shell wins, for example `PORT=3001 npm run dev`, and a
-missing `.env` is not an error. Tests ignore both and always use
+`npm run dev`, `npm start`, `npm run db:migrate`, and `npm run db:seed`
+read `.env`; a value set in the shell wins, for example
+`PORT=3001 npm run dev`, and a missing `.env` is not an error. Tests ignore both and always use
 `appointments_test`.
 
 - `npm install` - install every workspace
@@ -48,6 +49,16 @@ missing `.env` is not an error. Tests ignore both and always use
   on the same `PORT`. Needs `docker compose up -d db` and
   `npm run db:migrate` first; the backend creates the settings row on
   start and exits if the database is unreachable or not migrated
+- `npm run build` - build the frontend (`vite build`) into `frontend/dist`
+- `npm start` - the backend on `PORT` with no reload, from TypeScript
+  source with `tsx`, serving the API and, when `frontend/dist` exists, the
+  built frontend on the same origin; without a build it logs one line and
+  serves only the API. To run the single-origin app locally:
+  `docker compose up -d db`, `npm run db:migrate`, `npm run build`, then
+  `PUBLIC_BASE_URL=http://localhost:3000 npm start` and open that address.
+  `PUBLIC_BASE_URL` must be the address the browser opens, or writes get
+  `403 cross_site_request` and confirmation links point at the wrong port.
+  For development keep `npm run dev` with `PUBLIC_BASE_URL=http://localhost:5173`
 - `npm run db:migrate` - apply Prisma migrations (`prisma migrate dev`).
   After changing `backend/prisma/schema.prisma`, create its migration with
   `npm run db:migrate -- --name <what-changed>`

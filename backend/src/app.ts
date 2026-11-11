@@ -4,11 +4,23 @@ import { createAuthRouter } from './auth-routes.js';
 import { createClientRouter } from './client-routes.js';
 import { readConfig } from './config.js';
 import { ApiError, errorHandler } from './errors.js';
+import { createFrontendRouter } from './frontend.js';
 import { createPublicRouter } from './public-routes.js';
 import { createSettingsRouter } from './settings-routes.js';
 import { createStaffRouter } from './staff-routes.js';
 
 const checkedMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+const securityHeaders = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy': "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'",
+};
+
+const setSecurityHeaders: RequestHandler = (req, res, next) => {
+  res.set(securityHeaders);
+  next();
+};
 
 /** A missing `Origin` passes: browsers send it on every cross-site write (decision 26). */
 function rejectCrossSiteRequests(appOrigin: string): RequestHandler {
@@ -23,11 +35,12 @@ function rejectCrossSiteRequests(appOrigin: string): RequestHandler {
 }
 
 /** Builds a fresh app, with fresh rate-limit state, on each call. Sessions and the rate limit ignore `now`. */
-export function createApp(options: { now?: () => Date } = {}) {
-  const { now = () => new Date() } = options;
+export function createApp(options: { now?: () => Date; frontendDir?: string } = {}) {
+  const { now = () => new Date(), frontendDir } = options;
   const config = readConfig();
   const app = express();
   app.set('trust proxy', 1);
+  app.use(setSecurityHeaders);
 
   const v1 = express.Router();
   v1.use(rejectCrossSiteRequests(new URL(config.publicBaseUrl).origin));
@@ -44,5 +57,8 @@ export function createApp(options: { now?: () => Date } = {}) {
   v1.use(errorHandler);
 
   app.use('/v1', v1);
+  if (frontendDir !== undefined) {
+    app.use(createFrontendRouter(frontendDir));
+  }
   return app;
 }
