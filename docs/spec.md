@@ -269,7 +269,7 @@ A single container serves the API under `/v1` and the built frontend as static f
 | `SESSION_SECRET` | Signs session tokens; at least 32 characters |
 | `PUBLIC_BASE_URL` | Used to build confirmation links; also defines the app's own origin for the Origin check and whether the cookie is `Secure` |
 | `APP_ENV`, `APP_VERSION` | Environment and image tag, reported by `/health` and telemetry |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` | Telemetry export; off when unset |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME` | Telemetry export; off when the endpoint is unset. `OTEL_SERVICE_NAME` defaults to `appointment-confirmation` |
 
 Environment variables hold only deployment and secret values. Everything about how the business works lives in business settings (6.7), so it can change without a redeploy.
 
@@ -419,7 +419,7 @@ A client confirm or cancel on a `cancelled`, `attended` or `no_show` appointment
 ## 13. Security and Privacy
 
 - Client names, phone numbers, and confirmation tokens never appear in logs, traces, or metrics.
-- Request URLs for `/c/{token}` and `/v1/public/appointments/{token}` are recorded only by their route template, never the raw path.
+- Requests are recorded only by their Express route template, for example `/v1/public/appointments/:token`; page loads the SPA fallback serves, `/c/{token}` included, are recorded as `/{*splat}`. Raw paths, query strings, and request headers are never recorded.
 - Public endpoints are rate-limited per IP to slow token guessing: 30 requests per IP in a fixed 60-second window, counting every request to the three public endpoints, after which they return `429` with `Retry-After` until the window ends (decision 29). Behind CloudFront, the client IP comes from the `X-Forwarded-For` header CloudFront adds.
 - Sign-in is rate-limited per email and IP: after 10 failed sign-ins within 15 minutes, every sign-in for that IP and email returns `429` until the window ends.
 - All state-changing staff endpoints require the session cookie and reject cross-site requests: a request whose `Origin` header is not the app's own origin is rejected with `403`. Requests without an `Origin` header pass.
@@ -447,6 +447,8 @@ The key user journey is **client opens link → confirms or cancels**. It is ins
 | `appointment_response_failures_total` | counter | `action`, `actor`, `environment`, `version` |
 | `appointment_outcomes_total` | counter | `outcome` (`attended`, `no_show`), `environment`, `version` |
 
+`appointment_responses_total` counts confirms and cancels that change the status. `appointment_response_failures_total` counts confirm and cancel requests that end in a `5xx`; `4xx` answers are the app working as designed. Every request also records `http.server.request.duration` (seconds) by route template, method, and status code.
+
 ### 15.2 Alert
 **Clients cannot confirm:** fires when 3 or more `appointment_response_failures_total` increments occur within 5 minutes in one environment, sustained for 2 minutes. Each alert carries `service`, `environment`, `version`, and `severity` labels and a link to the dashboard filtered to that environment and version.
 
@@ -468,7 +470,7 @@ When the alert fires, a coding agent receives the alert, investigates with logs 
 9. Changing `noReplyWindowHours` on the Settings page changes which appointments show "No reply yet" on the next dashboard refresh.
 10. Regenerating a link makes the old link return 404.
 11. Unit, integration, and end-to-end tests run with one command each and pass in CI.
-12. No client name, phone number, or token appears in exported logs or traces.
+12. No client name, phone number, or token appears in exported logs, traces, or metrics, and a backend test proves it.
 
 ---
 

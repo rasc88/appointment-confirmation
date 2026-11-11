@@ -412,6 +412,12 @@ applies on read (decision 4). Business settings are one shared row that a
 test changes, so tests run one at a time, and a retry would hide a flaky
 test instead of fixing it.
 
+### 36. Telemetry is the OpenTelemetry Node SDK with hand-made request spans, on only when an OTLP endpoint is set
+
+The backend starts `@opentelemetry/sdk-node` only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, with the http/protobuf OTLP exporters, batch span and log processors at their defaults, and a 60-second metric reader. There are no auto-instrumentations. One Express middleware makes the request span, the request log line, and the duration histogram, naming the route only by its Express template; the four §15.1 counters are added in the route handlers and the error handler. Logs are JSON lines from a small logger module that also emits OTLP log records. A response failure is a `5xx` on a confirm or cancel.
+
+Why: spans built by the app hold only the attributes it chooses, so no header, raw path, or query can leak, whereas `instrumentation-http` records `url.path` and needs an allow-list to undo it, and `instrumentation-express` needs an ESM loader hook alongside `tsx`. Prisma's instrumentation was left out for the same reason: its spans carry SQL text and another version pin, for little gain at this size (#54). With no module patching, importing the telemetry module first in `server.ts` is enough, and tests, the seed, and local runs never start the SDK. Off by default means local development, tests, CI, and e2e need no account and send nothing. A pino-style logger was not needed for two levels and a handful of lines. Counting only `5xx` keeps token guessing (`404`, `429`) and late clicks (`409`) from paging anyone. Cost accepted: traces have one span per request, with no database child spans, and a failure before the request reaches the app (CloudFront, a stopped container) is not counted.
+
 ## Process
 
 ### 13. One agent at a time

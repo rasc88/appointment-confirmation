@@ -6,7 +6,14 @@ import { hashConfirmationToken } from './confirmation-token.js';
 import { prisma } from './db.js';
 import { createSessionToken } from './session.js';
 import type { AppointmentStatus, Client, StaffMember } from './generated/prisma/client.js';
-import { createTestAppointment, createTestClient, createTestStaff, resetDatabase, signIn } from './test-helpers.js';
+import {
+  createTestAppointment,
+  createTestClient,
+  createTestStaff,
+  expectOnlyRequestLines,
+  resetDatabase,
+  signIn,
+} from './test-helpers.js';
 
 const unauthenticated = { error: { code: 'unauthenticated', message: 'Sign in to continue.' } };
 const notFound = { error: { code: 'not_found', message: 'Not found.' } };
@@ -523,9 +530,7 @@ describe('privacy', () => {
     for (const secret of ['Maria Lopez', '+34 600 123 456', ...tokens]) {
       expect(logged).not.toContain(secret);
     }
-    for (const spy of spies) {
-      expect(spy).not.toHaveBeenCalled();
-    }
+    expectOnlyRequestLines(spies);
   });
 });
 
@@ -900,8 +905,10 @@ describe('appointment history', () => {
     await agent.post(`${path}/cancel`);
 
     expect((await storedRow(appointment.id)).status).toBe('cancelled');
-    for (const spy of spies) {
-      expect(spy).not.toHaveBeenCalled();
+    const logged = JSON.stringify(spies.map((spy) => spy.mock.calls));
+    for (const secret of ['Maria Lopez', '+34 600 123 456', appointment.token]) {
+      expect(logged).not.toContain(secret);
     }
+    expectOnlyRequestLines(spies);
   });
 });

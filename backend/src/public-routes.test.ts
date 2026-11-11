@@ -4,7 +4,16 @@ import { createApp } from './app.js';
 import * as confirmationToken from './confirmation-token.js';
 import { prisma } from './db.js';
 import type { Actor, AppointmentStatus, Client, StaffMember } from './generated/prisma/client.js';
-import { createTestAppointment, createTestClient, createTestStaff, resetDatabase, signIn, testPassword } from './test-helpers.js';
+import {
+  createTestAppointment,
+  createTestClient,
+  createTestStaff,
+  expectOnlyRequestLines,
+  loggedLines,
+  resetDatabase,
+  signIn,
+  testPassword,
+} from './test-helpers.js';
 
 vi.mock('./confirmation-token.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./confirmation-token.js')>();
@@ -469,7 +478,7 @@ describe('headers, Origin and body', () => {
 });
 
 describe('logging', () => {
-  it('logs nothing on success and errors', async () => {
+  it('logs only request lines, with no token, on success and errors', async () => {
     const appointment = await appointmentFor();
     const spies = [vi.spyOn(console, 'log'), vi.spyOn(console, 'error'), vi.spyOn(console, 'warn'), vi.spyOn(console, 'info')];
 
@@ -480,9 +489,8 @@ describe('logging', () => {
     now = startsAt;
     await send('cancel', appointment.token);
 
-    for (const spy of spies) {
-      expect(spy).not.toHaveBeenCalled();
-    }
+    expect(JSON.stringify(spies.map((spy) => spy.mock.calls))).not.toContain(appointment.token);
+    expectOnlyRequestLines(spies);
   });
 
   it('returns 500 for an unexpected error and logs the route template, not the token', async () => {
@@ -495,6 +503,10 @@ describe('logging', () => {
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ error: { code: 'internal_error', message: 'Something went wrong.' } });
     expect(response.headers['cache-control']).toBe('no-store');
-    expect(consoleError.mock.calls).toEqual([['Unhandled error: GET /public/appointments/:token TypeError']]);
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(appointment.token);
+    expect(loggedLines([consoleError])[0]).toMatchObject({
+      level: 'error',
+      msg: 'Unhandled error: GET /public/appointments/:token TypeError',
+    });
   });
 });

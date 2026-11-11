@@ -5,7 +5,7 @@ import { seedDemoData } from '../prisma/seed.js';
 import { createApp } from './app.js';
 import { prisma } from './db.js';
 import { createSessionToken } from './session.js';
-import { createTestStaff, resetDatabase, signIn, testPassword } from './test-helpers.js';
+import { createTestStaff, expectOnlyRequestLines, resetDatabase, signIn, testPassword } from './test-helpers.js';
 
 const sessionSecret = process.env.SESSION_SECRET!;
 const invalidCredentials = { error: { code: 'invalid_credentials', message: 'Email or password is incorrect.' } };
@@ -142,7 +142,7 @@ describe('POST /v1/auth/login', () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
-  it('writes no log line on sign-in', async () => {
+  it('writes only request lines on sign-in, with no email or password', async () => {
     await createTestStaff({ email: 'kim@test.test' });
     const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
       vi.spyOn(console, method).mockImplementation(() => {}),
@@ -152,9 +152,11 @@ describe('POST /v1/auth/login', () => {
     await login(app, { email: 'kim@test.test', password: testPassword });
     await login(app, { email: 'kim@test.test', password: 'wrong-password' });
 
-    for (const spy of spies) {
-      expect(spy).not.toHaveBeenCalled();
+    const logged = JSON.stringify(spies.map((spy) => spy.mock.calls));
+    for (const secret of ['kim@test.test', testPassword, 'wrong-password']) {
+      expect(logged).not.toContain(secret);
     }
+    expectOnlyRequestLines(spies);
   });
 });
 

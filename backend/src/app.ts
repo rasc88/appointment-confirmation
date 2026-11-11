@@ -7,6 +7,7 @@ import { ApiError, errorHandler } from './errors.js';
 import { createFrontendRouter } from './frontend.js';
 import { createHealthRouter } from './health-routes.js';
 import { createPublicRouter } from './public-routes.js';
+import { recordRequestTelemetry } from './request-telemetry.js';
 import { createSettingsRouter } from './settings-routes.js';
 import { createStaffRouter } from './staff-routes.js';
 
@@ -41,6 +42,7 @@ export function createApp(options: { now?: () => Date; frontendDir?: string } = 
   const config = readConfig();
   const app = express();
   app.set('trust proxy', 1);
+  app.use(recordRequestTelemetry);
   app.use(setSecurityHeaders);
 
   const v1 = express.Router();

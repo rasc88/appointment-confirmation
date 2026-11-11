@@ -34,7 +34,13 @@ starts, `PORT` is the backend port, `SESSION_SECRET` signs session cookies
 `PUBLIC_BASE_URL` is the address the browser uses (`http://localhost:5173`
 under `npm run dev`, the backend's own address under `npm start`).
 The backend exits on start when either of the last two is missing or
-invalid. Copy it to `.env` (ignored by git).
+invalid. It also lists, commented out, the telemetry variables:
+`OTEL_EXPORTER_OTLP_ENDPOINT` turns OTLP export of traces, metrics, and logs
+on; it is unset in the normal local setup, and then nothing is exported and
+logs go only to stdout. `OTEL_EXPORTER_OTLP_HEADERS` carries the
+authorization header and `OTEL_SERVICE_NAME` defaults to
+`appointment-confirmation`. The Grafana Cloud values come from the
+repository owner (#21). Copy it to `.env` (ignored by git).
 `npm run dev`, `npm start`, `npm run db:migrate`, and `npm run db:seed`
 read `.env`; a value set in the shell wins, for example
 `PORT=3001 npm run dev`, and a missing `.env` is not an error. Tests ignore both and always use
@@ -109,6 +115,8 @@ Rules
   never the development one.
 - Client names, phone numbers, and confirmation tokens never go into logs,
   traces, or metrics.
+- Backend code logs through the logger module, never `console.*`; log only
+  route templates, never a raw path, query, header, or error message.
 - Business rules (hours, thresholds, message wording) live in business
   settings in the database, not in environment variables or constants.
 - `npm run lint` and `npm run typecheck` must pass before any commit.
