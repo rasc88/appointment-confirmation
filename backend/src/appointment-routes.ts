@@ -11,6 +11,7 @@ import { ensureBusinessSettings } from './settings.js';
 import { parseBody, stringOfLength, uuidString } from './validation.js';
 
 const changeableStatuses: AppointmentStatus[] = ['pending', 'confirmed'];
+const outcomeStatuses: AppointmentStatus[] = ['attended', 'no_show'];
 const durationMessage = 'Enter a duration from 5 to 480 minutes.';
 
 const staffMemberIdSchema = uuidString('Choose an active staff member.');
@@ -34,6 +35,10 @@ const updateAppointmentSchema = z
     durationMinutes: durationMinutesSchema.optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'Change at least one field.');
+
+const outcomeSchema = z.strictObject({
+  outcome: z.enum(['attended', 'no_show'], { error: 'Choose attended or no-show.' }),
+});
 
 function invalidTransition() {
   return new ApiError(409, 'invalid_transition', 'This appointment can no longer be changed.');
@@ -59,10 +64,14 @@ function assertInFuture(startsAt: Date, now: Date) {
 }
 
 /** Filters on the checked statuses, so a status changed since the check is a 409, not a lost write. */
-async function updateChangeable(id: string, data: Prisma.AppointmentUncheckedUpdateInput) {
+async function updateChangeable(
+  id: string,
+  data: Prisma.AppointmentUncheckedUpdateInput,
+  statuses: AppointmentStatus[] = changeableStatuses,
+) {
   try {
     return await prisma.appointment.update({
-      where: { id, status: { in: changeableStatuses } },
+      where: { id, status: { in: statuses } },
       data,
       include: appointmentInclude,
     });
@@ -142,6 +151,60 @@ export function createAppointmentRouter(config: Config, now: () => Date) {
     const { token, tokenHash } = generateConfirmationToken();
     const updated = await updateChangeable(appointment.id, { tokenHash });
     res.json(toAppointmentWithLink(updated, token, settings, config.publicBaseUrl));
+  });
+
+  /** A double tap is harmless: an already confirmed appointment returns unchanged, even after the start. */
+  router.post('/appointments/:id/confirm', signedIn, async (req, res) => {
+    const requestTime = now();
+    const appointment = await loadAppointment((req.params as { id: string }).id);
+    if (appointment.status === 'confirmed') {
+      res.json(toAppointment(appointment));
+      return;
+    }
+    assertChangeable(appointment);
+    if (requestTime >= appointment.startsAt) {
+      throw new ApiError(409, 'appointment_started', 'This appointment has already started.');
+    }
+    const confirmed = await updateChangeable(
+      appointment.id,
+      { status: 'confirmed', confirmedBy: 'staff', statusChangedAt: requestTime },
+      ['pending'],
+    );
+    res.json(toAppointment(confirmed));
+  });
+
+  router.post('/appointments/:id/cancel', signedIn, async (req, res) => {
+    const requestTime = now();
+    const appointment = await loadAppointment((req.params as { id: string }).id);
+    assertChangeable(appointment);
+    const cancelled = await updateChangeable(appointment.id, {
+      status: 'cancelled',
+      cancelledBy: 'staff',
+      statusChangedAt: requestTime,
+    });
+    res.json(toAppointment(cancelled));
+  });
+
+  router.post('/appointments/:id/outcome', signedIn, async (req, res) => {
+    const requestTime = now();
+    const appointment = await loadAppointment((req.params as { id: string }).id);
+    assertChangeable(appointment);
+    if (requestTime < appointment.startsAt) {
+      throw new ApiError(409, 'appointment_not_started', 'This appointment has not started yet.');
+    }
+    const { outcome } = parseBody(outcomeSchema, req.body);
+    res.json(toAppointment(await updateChangeable(appointment.id, { status: outcome, statusChangedAt: requestTime })));
+  });
+
+  router.post('/appointments/:id/undo-outcome', signedIn, async (req, res) => {
+    const requestTime = now();
+    const appointment = await loadAppointment((req.params as { id: string }).id);
+    if (!outcomeStatuses.includes(appointment.status)) {
+      throw invalidTransition();
+    }
+    const status = appointment.confirmedBy === null ? 'pending' : 'confirmed';
+    const undone = await updateChangeable(appointment.id, { status, statusChangedAt: requestTime }, outcomeStatuses);
+    res.json(toAppointment(undone));
   });
 
   return router;
