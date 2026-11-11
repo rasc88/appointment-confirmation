@@ -112,7 +112,7 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 
 ### 6.1 Authentication and Staff Accounts
 - Email and password sign-in. Passwords are hashed with `bcryptjs` (cost 12).
-- The session is a signed token in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie, valid for 12 hours.
+- The session is a signed token in an `HttpOnly`, `SameSite=Lax` cookie, valid for 12 hours, and `Secure` when the app is served over HTTPS.
 - Any signed-in staff member can add a staff account (name, email, initial password).
 - Staff accounts cannot be deleted in the MVP. They can be marked inactive, which blocks sign-in, hides them from the staff picker, and ends their existing sessions (their next request returns `401`).
 - An inactive account can be reactivated from the Staff page, and signs in again with its existing password.
@@ -266,8 +266,8 @@ A single container serves the API under `/v1` and the built frontend as static f
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | Postgres connection string |
-| `SESSION_SECRET` | Signs session tokens |
-| `PUBLIC_BASE_URL` | Used to build confirmation links |
+| `SESSION_SECRET` | Signs session tokens; at least 32 characters |
+| `PUBLIC_BASE_URL` | Used to build confirmation links; also defines the app's own origin for the Origin check and whether the cookie is `Secure` |
 | `APP_ENV`, `APP_VERSION` | Environment and image tag, reported by `/health` and telemetry |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS` | Telemetry export; off when unset |
 
@@ -371,7 +371,7 @@ Indexes: `Appointment(startsAt)`, `Appointment(clientId, status)`, unique `Appoi
 
 ## 12. API Surface
 
-All endpoints are under `/v1` and defined in `openapi.yaml`. Errors use a single JSON shape: `{ "error": { "code", "message", "field"? } }`. `field` is present only on `422` and names the request field or query parameter that failed.
+All endpoints are under `/v1` and defined in `openapi.yaml`. Errors use a single JSON shape: `{ "error": { "code", "message", "field"? } }`. `field` is present only on `422` and names the request field or query parameter that failed. A request body that is not valid JSON, not a JSON object, or over 100 kB is `422 validation_error` without `field`.
 
 ### 12.1 Staff (session cookie required)
 | Method | Path | Purpose |
@@ -421,8 +421,8 @@ A client confirm or cancel on a `cancelled`, `attended` or `no_show` appointment
 - Client names, phone numbers, and confirmation tokens never appear in logs, traces, or metrics.
 - Request URLs for `/c/{token}` and `/v1/public/appointments/{token}` are recorded only by their route template, never the raw path.
 - Public endpoints are rate-limited per IP (for example 30 requests per minute) to slow token guessing. Behind CloudFront, the client IP comes from the `X-Forwarded-For` header CloudFront adds.
-- Sign-in is rate-limited per email and IP.
-- All state-changing staff endpoints require the session cookie and reject cross-site requests: a request whose `Origin` header is not the app's own origin is rejected with `403`.
+- Sign-in is rate-limited per email and IP: after 10 failed sign-ins within 15 minutes, every sign-in for that IP and email returns `429` until the window ends.
+- All state-changing staff endpoints require the session cookie and reject cross-site requests: a request whose `Origin` header is not the app's own origin is rejected with `403`. Requests without an `Origin` header pass.
 - Secrets come only from environment variables, never from the repository.
 
 ---

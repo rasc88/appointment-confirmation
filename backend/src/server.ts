@@ -1,8 +1,16 @@
-import { app } from './app.js';
+import { createApp } from './app.js';
+import { readConfig } from './config.js';
 import { prisma } from './db.js';
 import { ensureBusinessSettings } from './settings.js';
 
 const port = Number(process.env.PORT ?? 3000);
+
+try {
+  readConfig();
+} catch (error) {
+  console.error((error as Error).message);
+  process.exit(1);
+}
 
 try {
   await ensureBusinessSettings(prisma);
@@ -11,6 +19,6 @@ try {
   process.exit(1);
 }
 
-app.listen(port, () => {
+createApp().listen(port, () => {
   console.log(`Backend listening on http://localhost:${port}`);
 });

@@ -49,7 +49,8 @@ paths:
             Set-Cookie:
               description: |
                 The session cookie:
-                `session=<signed token>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=43200`.
+                `session=<signed token>; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200`,
+                plus `Secure` when the app is served over HTTPS.
               schema:
                 type: string
           content:
@@ -82,7 +83,8 @@ paths:
             Set-Cookie:
               description: |
                 Clears the session cookie:
-                `session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`.
+                `session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
+                plus `Secure` when the app is served over HTTPS.
               schema:
                 type: string
         '403':
@@ -901,8 +903,9 @@ components:
       name: session
       description: |
         The signed session token set by `POST /auth/login`, with the
-        attributes `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=43200`
-        (12 hours, spec section 6.1).
+        attributes `HttpOnly; SameSite=Lax; Path=/; Max-Age=43200`
+        (12 hours, spec section 6.1), plus `Secure` when the app is served
+        over HTTPS.
 
   parameters:
     Id:
@@ -1016,7 +1019,8 @@ components:
     ValidationFailed:
       description: |
         `validation_error`: the request failed validation. `field` names the
-        request field or query parameter that failed.
+        request field or query parameter that failed. A body that is not
+        valid JSON, not a JSON object, or over 100 kB has no `field`.
       content:
         application/json:
           schema:
