@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
+    silent: 'passed-only',
     env: {
       DATABASE_URL: 'postgresql://app:app@localhost:5432/appointments_test',
       SESSION_SECRET: 'test-only-session-secret-at-least-32-characters',

@@ -5,6 +5,7 @@ import request from 'supertest';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 import { prisma } from './db.js';
+import { loggedLines } from './test-helpers.js';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -47,8 +48,8 @@ describe('GET /v1/health', () => {
     expect(response.status).toBe(503);
     expect(response.body).toEqual({ status: 'unavailable', environment: 'local', version: 'v1.2.3' });
     expect(response.headers['cache-control']).toBe('no-store');
-    expect(consoleError).toHaveBeenCalledTimes(1);
-    expect(consoleError).toHaveBeenCalledWith('Health check failed: Error');
+    expect(loggedLines([consoleError])[0]).toEqual({ time: expect.any(String), level: 'error', msg: 'Health check failed: Error' });
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain('secret-host');
   });
 
   it('answers with JSON, not index.html, when the frontend is served', async () => {

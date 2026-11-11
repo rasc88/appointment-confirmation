@@ -4,6 +4,7 @@ import path from 'node:path';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
+import { expectOnlyRequestLines } from './test-helpers.js';
 
 const indexHtml = '<!doctype html><title>Fixture</title><div id="root"></div>';
 const assetJs = 'console.log("fixture");';
@@ -88,7 +89,7 @@ describe('serving the built frontend', () => {
   });
 
   it.each(['/assets/index-old.js', '/assets/nested/missing.css', '/favicon.ico', '/robots.txt', '/c/abc.def'])(
-    'answers %s with 404, not index.html, and logs nothing',
+    'answers %s with 404, not index.html, and logs no error or path',
     async (url) => {
       const consoleError = vi.spyOn(console, 'error');
       const consoleLog = vi.spyOn(console, 'log');
@@ -98,7 +99,8 @@ describe('serving the built frontend', () => {
       expect(response.status).toBe(404);
       expect(response.text).not.toContain('Fixture');
       expect(consoleError).not.toHaveBeenCalled();
-      expect(consoleLog).not.toHaveBeenCalled();
+      expect(JSON.stringify(consoleLog.mock.calls)).not.toContain(url);
+      expectOnlyRequestLines([consoleLog]);
     },
   );
 
@@ -115,7 +117,7 @@ describe('serving the built frontend', () => {
     ['/..%2f..%2fpackage.json', [403, 404]],
     ['/assets/%E0%A4%A', [400]],
     ['/sign-in/%E0%A4%A', [400]],
-  ] as const)('answers %s with %j and logs nothing', async (url, statuses) => {
+  ] as const)('answers %s with %j and logs no error or path', async (url, statuses) => {
     const consoleError = vi.spyOn(console, 'error');
     const consoleLog = vi.spyOn(console, 'log');
 
@@ -125,7 +127,8 @@ describe('serving the built frontend', () => {
     expect(response.text).not.toContain('Fixture');
     expect(response.text).not.toContain('"private"');
     expect(consoleError).not.toHaveBeenCalled();
-    expect(consoleLog).not.toHaveBeenCalled();
+    expect(JSON.stringify(consoleLog.mock.calls)).not.toContain(url);
+    expectOnlyRequestLines([consoleLog]);
   });
 
   it.each(['/v1/nope', '/v1/c/abc'])('keeps the JSON 404 for %s', async (url) => {

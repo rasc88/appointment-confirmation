@@ -1,5 +1,7 @@
 import type { ErrorRequestHandler } from 'express';
 import { Prisma } from './generated/prisma/client.js';
+import { logger } from './logger.js';
+import { countAppointmentResponseFailure, type ResponseAction, type ResponseActor } from './metrics.js';
 
 export type ErrorCode =
   | 'unauthenticated'
@@ -58,6 +60,14 @@ function toApiError(error: unknown) {
   return null;
 }
 
+/** Keyed by the route template relative to `/v1`, as `req.route.path` holds it in this handler. */
+const responseRoutes: Record<string, { action: ResponseAction; actor: ResponseActor }> = {
+  '/public/appointments/:token/confirm': { action: 'confirm', actor: 'client' },
+  '/public/appointments/:token/cancel': { action: 'cancel', actor: 'client' },
+  '/appointments/:id/confirm': { action: 'confirm', actor: 'staff' },
+  '/appointments/:id/cancel': { action: 'cancel', actor: 'staff' },
+};
+
 /** Logs no message or stack: Prisma messages echo query arguments (AGENTS.md logging rule). */
 export const errorHandler: ErrorRequestHandler = (error: unknown, req, res, next) => {
   void next;
@@ -69,6 +79,11 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, req, res, next
   }
   const name = error instanceof Error ? error.name : typeof error;
   const prismaCode = error instanceof Prisma.PrismaClientKnownRequestError ? ` ${error.code}` : '';
-  console.error(`Unhandled error: ${req.method} ${req.route?.path ?? 'unmatched'} ${name}${prismaCode}`);
+  const routePath: string | undefined = req.route?.path;
+  logger.error(`Unhandled error: ${req.method} ${routePath ?? 'unmatched'} ${name}${prismaCode}`);
+  const responseRoute = routePath === undefined ? undefined : responseRoutes[routePath];
+  if (responseRoute) {
+    countAppointmentResponseFailure(responseRoute.action, responseRoute.actor);
+  }
   res.status(500).json({ error: { code: 'internal_error', message: 'Something went wrong.' } });
 };

@@ -1,5 +1,6 @@
 import type { Express } from 'express';
 import request from 'supertest';
+import { expect } from 'vitest';
 import { generateConfirmationToken } from './confirmation-token.js';
 import { prisma } from './db.js';
 import type { Actor, AppointmentStatus } from './generated/prisma/client.js';
@@ -77,4 +78,16 @@ export async function signIn(app: Express, email: string, password = testPasswor
     throw new Error(`Sign-in failed with ${response.status}`);
   }
   return agent;
+}
+
+/** Parses every logger line written through the spied `console` methods. */
+export function loggedLines(spies: { mock: { calls: unknown[][] } }[]) {
+  return spies.flatMap((spy) => spy.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>));
+}
+
+/** Checks the kind of line, not the count: a request line is written when its response closes. */
+export function expectOnlyRequestLines(spies: { mock: { calls: unknown[][] } }[]) {
+  for (const line of loggedLines(spies)) {
+    expect(line).toMatchObject({ level: 'info', msg: 'request' });
+  }
 }

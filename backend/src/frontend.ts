@@ -1,6 +1,7 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { STATUS_CODES } from 'node:http';
 import path from 'node:path';
+import { logger } from './logger.js';
 
 /** Like `errors.ts`: a 4xx (missing asset, blocked traversal, malformed URL) prints nothing; anything else logs no message or stack. */
 const plainTextErrorHandler: ErrorRequestHandler = (error: unknown, req, res, next) => {
@@ -10,7 +11,7 @@ const plainTextErrorHandler: ErrorRequestHandler = (error: unknown, req, res, ne
     res.status(status).type('text/plain').send(STATUS_CODES[status]);
     return;
   }
-  console.error(`Unhandled error: ${req.method} frontend ${error instanceof Error ? error.name : typeof error}`);
+  logger.error(`Unhandled error: ${req.method} frontend ${error instanceof Error ? error.name : typeof error}`);
   res.status(500).type('text/plain').send(STATUS_CODES[500]);
 };
 

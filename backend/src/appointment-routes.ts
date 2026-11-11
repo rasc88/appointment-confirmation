@@ -7,6 +7,7 @@ import { getDayView } from './day-view.js';
 import { prisma } from './db.js';
 import { ApiError, validationError } from './errors.js';
 import { Prisma, type AppointmentStatus } from './generated/prisma/client.js';
+import { countAppointmentCreated, countAppointmentOutcome, countAppointmentResponse } from './metrics.js';
 import { requireStaff } from './session.js';
 import { ensureBusinessSettings } from './settings.js';
 import { parseBody, stringOfLength, uuidString } from './validation.js';
@@ -114,6 +115,7 @@ export function createAppointmentRouter(config: Config, now: () => Date) {
       },
       include: appointmentInclude,
     });
+    countAppointmentCreated();
     res.status(201).json(toAppointmentWithLink(appointment, token, settings, config.publicBaseUrl));
   });
 
@@ -175,6 +177,7 @@ export function createAppointmentRouter(config: Config, now: () => Date) {
       { status: 'confirmed', confirmedBy: 'staff', statusChangedAt: requestTime },
       ['pending'],
     );
+    countAppointmentResponse('confirm', 'staff');
     res.json(toAppointment(confirmed));
   });
 
@@ -187,6 +190,7 @@ export function createAppointmentRouter(config: Config, now: () => Date) {
       cancelledBy: 'staff',
       statusChangedAt: requestTime,
     });
+    countAppointmentResponse('cancel', 'staff');
     res.json(toAppointment(cancelled));
   });
 
@@ -198,7 +202,9 @@ export function createAppointmentRouter(config: Config, now: () => Date) {
       throw new ApiError(409, 'appointment_not_started', 'This appointment has not started yet.');
     }
     const { outcome } = parseBody(outcomeSchema, req.body);
-    res.json(toAppointment(await updateChangeable(appointment.id, { status: outcome, statusChangedAt: requestTime })));
+    const updated = await updateChangeable(appointment.id, { status: outcome, statusChangedAt: requestTime });
+    countAppointmentOutcome(outcome);
+    res.json(toAppointment(updated));
   });
 
   router.post('/appointments/:id/undo-outcome', signedIn, async (req, res) => {

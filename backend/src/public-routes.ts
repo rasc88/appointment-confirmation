@@ -3,6 +3,7 @@ import { hashConfirmationToken } from './confirmation-token.js';
 import { prisma } from './db.js';
 import { ApiError } from './errors.js';
 import { Prisma, type AppointmentStatus } from './generated/prisma/client.js';
+import { countAppointmentResponse } from './metrics.js';
 import { createPublicRateLimit } from './public-rate-limit.js';
 import { ensureBusinessSettings } from './settings.js';
 
@@ -95,13 +96,16 @@ export function createPublicRouter(now: () => Date) {
     const requestTime = now();
     const appointment = await findByToken((req.params as { token: string }).token);
     assertClientCanChange(appointment, requestTime);
-    const confirmed =
-      appointment.status === 'pending'
-        ? await updateIfStatus(
-            { tokenHash: appointment.tokenHash, status: 'pending' },
-            { status: 'confirmed', confirmedBy: 'client', statusChangedAt: requestTime },
-          )
-        : appointment;
+    const isPending = appointment.status === 'pending';
+    const confirmed = isPending
+      ? await updateIfStatus(
+          { tokenHash: appointment.tokenHash, status: 'pending' },
+          { status: 'confirmed', confirmedBy: 'client', statusChangedAt: requestTime },
+        )
+      : appointment;
+    if (isPending) {
+      countAppointmentResponse('confirm', 'client');
+    }
     res.json(await toPublicAppointment(confirmed, requestTime));
   });
 
@@ -113,6 +117,7 @@ export function createPublicRouter(now: () => Date) {
       { tokenHash: appointment.tokenHash, status: { in: ['pending', 'confirmed'] } },
       { status: 'cancelled', cancelledBy: 'client', statusChangedAt: requestTime },
     );
+    countAppointmentResponse('cancel', 'client');
     res.json(await toPublicAppointment(cancelled, requestTime));
   });
 

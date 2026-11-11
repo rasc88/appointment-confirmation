@@ -4,7 +4,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 import { prisma } from './db.js';
 import { errorHandler } from './errors.js';
-import { createTestStaff, resetDatabase, signIn } from './test-helpers.js';
+import { createTestStaff, loggedLines, resetDatabase, signIn } from './test-helpers.js';
 
 const notFound = { error: { code: 'not_found', message: 'Not found.' } };
 const crossSite = { error: { code: 'cross_site_request', message: 'Cross-site requests are not allowed.' } };
@@ -168,8 +168,10 @@ describe('errorHandler', () => {
       expect(response.status).toBe(500);
       expect(response.body).toEqual({ error: { code: 'internal_error', message: 'Something went wrong.' } });
       expect(response.text).not.toContain('secret');
-      expect(consoleError).toHaveBeenCalledTimes(1);
-      expect(consoleError.mock.calls[0]).toEqual(['Unhandled error: POST /boom/:id Error']);
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain('secret');
+      expect(loggedLines([consoleError])).toEqual([
+        { time: expect.any(String), level: 'error', msg: 'Unhandled error: POST /boom/:id Error' },
+      ]);
     } finally {
       consoleError.mockRestore();
     }
@@ -188,7 +190,10 @@ describe('errorHandler', () => {
 
       expect(response.status).toBe(500);
       expect(response.text).not.toContain('dup@test.test');
-      expect(consoleError.mock.calls).toEqual([['Unhandled error: GET unmatched PrismaClientKnownRequestError P2002']]);
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain('dup@test.test');
+      expect(loggedLines([consoleError])).toEqual([
+        { time: expect.any(String), level: 'error', msg: 'Unhandled error: GET unmatched PrismaClientKnownRequestError P2002' },
+      ]);
     } finally {
       consoleError.mockRestore();
     }

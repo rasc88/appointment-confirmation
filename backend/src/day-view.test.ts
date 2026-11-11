@@ -3,7 +3,14 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { createApp } from './app.js';
 import { prisma } from './db.js';
 import type { AppointmentStatus, Client, StaffMember } from './generated/prisma/client.js';
-import { createTestAppointment, createTestClient, createTestStaff, resetDatabase, signIn } from './test-helpers.js';
+import {
+  createTestAppointment,
+  createTestClient,
+  createTestStaff,
+  expectOnlyRequestLines,
+  resetDatabase,
+  signIn,
+} from './test-helpers.js';
 
 const hourMs = 60 * 60 * 1000;
 const dayMs = 24 * hourMs;
@@ -425,7 +432,7 @@ describe('settings changes', () => {
 });
 
 describe('privacy', () => {
-  it('logs nothing on a 200 or a 422', async () => {
+  it('logs only request lines, with no client name or phone, on a 200 or a 422', async () => {
     const logs = (['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
       vi.spyOn(console, method).mockImplementation(() => {}),
     );
@@ -435,8 +442,9 @@ describe('privacy', () => {
     await agent.get('/v1/appointments?date=today');
     await agent.get('/v1/appointments?staffId=abc');
 
-    for (const log of logs) {
-      expect(log).not.toHaveBeenCalled();
-    }
+    const logged = JSON.stringify(logs.map((log) => log.mock.calls));
+    expect(logged).not.toContain('Maria Lopez');
+    expect(logged).not.toContain('+34 600 123 456');
+    expectOnlyRequestLines(logs);
   });
 });
