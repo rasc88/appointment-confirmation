@@ -73,7 +73,7 @@ export async function confirmationLinkText(page: Page): Promise<string> {
 }
 
 export async function openDashboardOn(page: Page, startsAt: Date) {
-  await page.getByRole('link', { name: 'Dashboard' }).click();
+  await page.getByRole('link', { name: 'Dashboard', exact: true }).click();
   await page.getByLabel('Date', { exact: true }).fill(madridWallClock(startsAt).date);
 }
 

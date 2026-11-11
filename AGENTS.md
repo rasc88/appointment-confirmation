@@ -76,7 +76,19 @@ read `.env`; a value set in the shell wins, for example
   one root `eslint.config.js`, then Redocly on `openapi.yaml`
   (`npm run lint:openapi` runs only Redocly; rules in `redocly.yaml`)
 - `npm run typecheck` - `tsc --noEmit`, every workspace
-- `npm run test:e2e` - Playwright against the Docker Compose stack
+- `npm run test:e2e` - Playwright in Chromium against a throwaway copy of
+  the Docker Compose stack. Needs Docker with Compose 2.24.4 or later (for
+  `!reset`/`!override` in `e2e/compose.e2e.yaml`) and, once after
+  `npm install`, `npx playwright install --with-deps chromium` from the
+  repository root (`--with-deps` installs the system libraries with sudo;
+  where they are already present, `npx playwright install chromium` is
+  enough). It builds the image and starts a separate Compose project
+  `ac-e2e` on `http://localhost:8085` with its own database volume, waits
+  for `/v1/health`, runs the suite, and removes the project with
+  `down -v`, so it runs alongside the dev stack and never touches
+  `appointments`. On failure, traces and screenshots go to
+  `e2e/test-results/`; the HTML report is always written to
+  `e2e/playwright-report/` (`npx playwright show-report e2e/playwright-report`)
 - `docker compose up --build` - the whole app with Postgres, one command,
   at `http://localhost:8080`, using the same `appointments` database as
   `npm run dev`. Every start applies migrations (`prisma migrate deploy`),
