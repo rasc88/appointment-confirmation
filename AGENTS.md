@@ -91,6 +91,15 @@ read `.env`; a value set in the shell wins, for example
 - `npm run db:seed:if-empty` - the same seed, but only when the database
   has no staff member; otherwise it logs one line and changes nothing.
   Also refuses `APP_ENV=production`
+- `npm run staff:create` - prompts for name, email, and password (the
+  password is not echoed on a TTY; piped stdin works too) and creates one
+  active staff account the way `POST /v1/staff` does: same validation,
+  lowercased email, cost-12 hash, duplicate emails refused. Needs only
+  `DATABASE_URL`, takes no arguments (any argument exits `2`), and prints
+  only the new id, never the typed values. It works under
+  `APP_ENV=production` and is how the first production account is made,
+  inside the production container (README "Create the first production
+  staff account")
 - `npm test` - Vitest once (no watch) in every workspace except e2e. Needs
   `docker compose up -d db`; backend tests migrate and use
   `appointments_test`, one file at a time

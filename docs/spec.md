@@ -114,6 +114,7 @@ For each appointment whose start time has passed, staff mark **Attended** or **N
 - Email and password sign-in. Passwords are hashed with `bcryptjs` (cost 12).
 - The session is a signed token in an `HttpOnly`, `SameSite=Lax` cookie, valid for 12 hours, and `Secure` when the app is served over HTTPS.
 - Any signed-in staff member can add a staff account (name, email, initial password).
+- Production has no seed, so the first production account is created with `npm run staff:create` inside the production container (decision 39).
 - Staff accounts cannot be deleted in the MVP. They can be marked inactive, which blocks sign-in, hides them from the staff picker, and ends their existing sessions (their next request returns `401`).
 - An inactive account can be reactivated from the Staff page, and signs in again with its existing password.
 - A staff member cannot deactivate themselves (`409`), so the last active account cannot lock everyone out.

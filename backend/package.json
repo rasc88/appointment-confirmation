@@ -10,6 +10,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:seed:if-empty": "tsx --env-file-if-exists=../.env prisma/seed.ts --if-empty",
+    "staff:create": "tsx --env-file-if-exists=../.env src/staff-create.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
