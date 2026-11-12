@@ -1,0 +1,73 @@
+name: Promote to production
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PROD_URL }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check repository variables
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          AWS_INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+          DEV_URL: ${{ vars.DEV_URL }}
+          PROD_URL: ${{ vars.PROD_URL }}
+        run: |
+          is_missing=false
+          for name in AWS_DEPLOY_ROLE_ARN AWS_INSTANCE_ID DEV_URL PROD_URL; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Repository variable $name is not set. See README.md, Deploy to AWS > Continuous deployment."
+              is_missing=true
+            fi
+          done
+          if [[ "$is_missing" == true ]]; then
+            exit 1
+          fi
+      # Only a 40-hex SHA that dev reports as healthy reaches production or a shell command.
+      - name: Read the version dev runs
+        id: dev
+        env:
+          DEV_URL: ${{ vars.DEV_URL }}
+        run: |
+          if ! response="$(curl -sS --max-time 10 -w '\n%{http_code}' "$DEV_URL/v1/health" 2>&1)"; then
+            echo "$response"
+            echo "::error::Could not read $DEV_URL/v1/health; nothing was promoted."
+            exit 1
+          fi
+          http_code="$(tail -n 1 <<< "$response")"
+          body="$(sed '$d' <<< "$response")"
+          echo "$DEV_URL/v1/health answered $http_code: $body"
+          sha="$(jq -r 'select(.status == "ok" and .environment == "dev") | .version' <<< "$body" 2> /dev/null || true)"
+          if [[ "$http_code" != 200 || ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Dev is not healthy or does not run a commit image (status ok, environment dev, version a 40-character SHA); nothing was promoted."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Promoting \`$sha\` (ghcr.io/rasc88/appointment-confirmation:$sha), the image dev runs, to production." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Deploy to production
+        env:
+          INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+          APP_URL: ${{ vars.PROD_URL }}
+          SHA: ${{ steps.dev.outputs.sha }}
+        run: infra/remote-deploy.sh prod "$SHA"

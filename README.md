@@ -104,7 +104,77 @@ aws cloudformation describe-stacks --region us-east-1 \
   `/appointment-confirmation/dev/public-base-url`
 - `ProdUrl` - production, stored as
   `/appointment-confirmation/prod/public-base-url`
-- `InstanceId` and `DeployRoleArn` - the deploy workflows (#19) need both
+- `InstanceId` and `DeployRoleArn` - the deploy workflows need both
+  ("Continuous deployment" below)
+
+### Continuous deployment
+
+Two workflows deploy the app (decision 38). Both reach the instance only
+through the stack's deploy role, over OIDC and SSM; there are no AWS keys
+and no repository secrets.
+
+- `Deploy` (`.github/workflows/deploy.yml`) runs on every push to `main`.
+  It builds one `linux/arm64` image on GitHub's `ubuntu-24.04-arm` runner,
+  tagged with the full commit SHA (also its `APP_VERSION`), pushes it to
+  `ghcr.io/rasc88/appointment-confirmation:<sha>` unless that tag already
+  exists, then runs `infra/remote-deploy.sh dev <sha>`. That script checks
+  out the commit on the instance and runs `infra/deploy.sh` over SSM, then
+  waits until `<DevUrl>/v1/health` reports the SHA. Runs queue in push
+  order and a deploy in progress is never cancelled
+- `Promote to production` (`.github/workflows/promote.yml`) runs only when
+  you start it. It reads the SHA dev runs now from `<DevUrl>/v1/health`
+  and deploys that exact image to production the same way. It builds
+  nothing and takes no input
+
+#### Setup, once after the stack exists
+
+1. Read the stack outputs (above).
+2. Set the repository variables. They are plain variables, not secrets;
+   `DEV_URL` and `PROD_URL` have no trailing slash:
+
+   ```sh
+   gh variable set AWS_DEPLOY_ROLE_ARN --body '<DeployRoleArn>'
+   gh variable set AWS_INSTANCE_ID --body '<InstanceId>'
+   gh variable set DEV_URL --body '<DevUrl>'
+   gh variable set PROD_URL --body '<ProdUrl>'
+   ```
+
+   Or Settings → Secrets and variables → Actions → Variables → New
+   repository variable, once per name. Until all are set, `Deploy` fails
+   at `deploy-dev` with a message naming what is missing.
+3. Create the `production` environment: Settings → Environments → New
+   environment, name `production`, Configure environment. Under
+   "Deployment protection rules" tick "Required reviewers", add yourself,
+   and Save protection rules. Under "Deployment branches and tags" choose
+   "Selected branches and tags", Add deployment branch or tag rule, enter
+   `main`, and Add rule. The `dev` environment is created by the first
+   `Deploy` run and needs no rules.
+4. After the first `Deploy` run has pushed the image, make the package
+   public so the instance can pull it without logging in: your profile →
+   Packages → `appointment-confirmation` → Package settings → Change
+   visibility → Public. That first run's `deploy-dev` job fails at the
+   pull, before anything on the instance changes, because the package
+   starts private. Re-run that job (Actions → the run → Re-run failed
+   jobs) once the package is public.
+
+#### Promote to production
+
+Actions → "Promote to production" → Run workflow, branch `main`, or:
+
+```sh
+gh workflow run promote.yml --ref main
+```
+
+It promotes whatever dev runs at that moment, so check dev first. The run
+waits for your approval (Review deployments → Approve and deploy) before
+it gets AWS credentials. A dev that runs a `manual` build (the optional
+first bring-up), is unhealthy, or does not answer cannot be promoted: the
+run stops before any AWS call.
+
+#### Roll back
+
+Revert the bad commit on `main` through a pull request. `Deploy` builds
+the revert and puts it on dev; once dev is good, promote it.
 
 ### Verify
 

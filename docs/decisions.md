@@ -480,6 +480,78 @@ Cost accepted: there are no backups (owner decision), so losing the
 instance or deleting the stack loses all data; a mutable tag already on
 the host is not pulled again, so deploys use immutable tags.
 
+### 38. Every `main` commit becomes one arm64 image tagged with its SHA; promotion re-deploys the tag dev reports
+
+`.github/workflows/deploy.yml` (`Deploy`) runs on every push to `main`
+only. Its `build` job, on GitHub's `ubuntu-24.04-arm` runner, builds one
+`linux/arm64` image with plain `docker`, tagged
+`ghcr.io/rasc88/appointment-confirmation:<full commit SHA>` with the same
+SHA as `APP_VERSION`, and pushes it with `GITHUB_TOKEN` unless that tag
+already exists. Its `deploy-dev` job, in the `dev` environment, gets AWS
+credentials with `aws-actions/configure-aws-credentials` over OIDC and runs
+`infra/remote-deploy.sh dev <sha>`. `.github/workflows/promote.yml`
+(`Promote to production`) is `workflow_dispatch` only, with no inputs, on
+`main` only, in the `production` environment: it reads the SHA from dev's
+`/v1/health`, accepts it only when dev answers `200`, `status` `ok`,
+`environment` `dev` and a 40-hex `version`, and runs
+`infra/remote-deploy.sh prod <sha>`. `remote-deploy.sh` validates its
+arguments, sends one `AWS-RunShellScript` command that, under
+`flock` on `/opt/appointment-confirmation/deploy.lock`, fetches, checks out
+the SHA, and runs `infra/deploy.sh`, waits for it, prints its output, and
+then polls the environment's `/v1/health` (`curl --max-time 10`, 30 tries
+10 s apart) until it reports that SHA.
+
+Why:
+- **Tag = full commit SHA, nothing else** (the rough issue said date and
+  commit): one immutable tag per commit, the same string as `APP_VERSION`,
+  so `/v1/health` names the exact commit to check out, and a 40-hex check
+  is a complete validation before the value goes into a shell command. The
+  date is in the commit.
+- **Native arm64 runner** (`ubuntu-24.04-arm`, free for public
+  repositories, owner decision) rather than QEMU emulation: `npm ci` and
+  `vite build` run at native speed, and no `docker/*` action is needed.
+  The image is arm64-only; CI's `e2e` keeps building its own amd64 image.
+- **Dev deploys on `push` to `main` without waiting for `CI`**: branch
+  protection already requires green, up-to-date checks before a merge, and
+  `workflow_run` would add a second trigger path for no gain. `Deploy`
+  never runs on a pull request, so `main`'s required checks stay
+  `lint-typecheck`, `test`, `e2e` (decision 35).
+- **Promotion has no input**: reading the tag from dev's `/v1/health` is
+  the only way "the exact image already running on dev" holds; a typed tag
+  could promote something dev never ran. A `manual` build or an unhealthy
+  dev cannot be promoted.
+- **Two locks**: a GitHub `concurrency` group per environment
+  (`deploy-dev`, `deploy-production`; queue, never cancel a deploy in
+  progress), plus `flock` on the instance, because dev and prod check out
+  commits in the same `/opt/appointment-confirmation/repo`, and one shared
+  GitHub group would let a dev push silently cancel a pending promotion.
+- **Never overwrite a pushed tag**: a re-run that rebuilt the same SHA
+  would give production a different image than dev under the same name.
+- **Production is gated twice** (owner decision): the owner runs
+  `promote.yml` by hand, and the `production` environment requires the
+  owner's approval and allows only `main`, so a run started by mistake
+  waits at the gate instead of deploying.
+- **Official AWS credentials action** (owner decision), pinned to its
+  major tag like the `actions/*` actions (decision 35), rather than a
+  hand-written OIDC exchange: less shell to get wrong, and AWS maintains
+  it.
+- **Plain repository variables, not secrets**: the role ARN, instance id
+  and URLs are not secret, and seeing them in logs makes failures easier
+  to read. The deploy role can only run `AWS-RunShellScript` on that
+  instance. The only secret the workflows use is `GITHUB_TOKEN`.
+- **A missing variable fails the deploy job with a message** instead of
+  skipping it, so an unfinished setup is visible. The deploy workflows are
+  not required checks and block no merge.
+- **Checked offline only**: agents have no AWS credentials, so QA parses
+  the YAML, runs `bash -n` on every `run:` block, and runs
+  `remote-deploy.sh` against fake `aws`, `curl` and `sleep`. No actionlint
+  or other new tool (owner decision on #18).
+
+Cost accepted: an owner admin-merge with broken CI still deploys to dev;
+until the owner finishes setup, every `Deploy` run on `main` is red at
+`deploy-dev`; the first real run, after merge, is the first time the
+arm64 build and the SSM path are exercised.
+
 ## Process
 
 ### 13. One agent at a time
