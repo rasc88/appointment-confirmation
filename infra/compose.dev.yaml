@@ -1,0 +1,4 @@
+# Dev only: seed the demo data once, on an empty database (decisions 33 and 37).
+services:
+  app:
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run db:seed:if-empty && exec npm start"]

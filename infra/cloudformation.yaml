@@ -1,0 +1,309 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Appointment Confirmation: one t4g.small running dev and production as
+  separate Compose projects, each behind its own CloudFront distribution,
+  plus the GitHub OIDC role that deploys over SSM (spec 10.4, decision 37).
+
+Parameters:
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: >-
+      Amazon Linux 2023 arm64 AMI. A plain id on purpose: a new value replaces
+      the instance and deletes both databases (decision 37).
+  GitHubRepository:
+    Type: String
+    Default: rasc88/appointment-confirmation
+    Description: owner/name of the public repository the instance clones and GitHub Actions deploys from.
+  ExistingGitHubOidcProviderArn:
+    Type: String
+    Default: ""
+    Description: >-
+      ARN of the account's token.actions.githubusercontent.com provider, if it
+      already has one. Empty creates it.
+  CloudFrontOriginPrefixListId:
+    Type: String
+    Default: pl-3b927c52
+    Description: The com.amazonaws.global.cloudfront.origin-facing managed prefix list in us-east-1.
+
+Rules:
+  OnlyUsEast1:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", us-east-1]
+        AssertDescription: >-
+          Deploy this stack in us-east-1 only. The prefix list id and the
+          compute-1.amazonaws.com origin name are specific to that region.
+
+Conditions:
+  CreateGitHubOidcProvider: !Equals [!Ref ExistingGitHubOidcProviderArn, ""]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref "AWS::StackName"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: App ports 8081 (dev) and 8082 (prod) from CloudFront origin-facing servers only
+      VpcId: !Ref Vpc
+      # One rule: a prefix-list reference counts as the list's maximum size against the rules quota.
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8081
+          ToPort: 8082
+          SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+          Description: CloudFront to dev and prod
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: read-app-parameters
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub arn:${AWS::Partition}:ssm:us-east-1:${AWS::AccountId}:parameter/appointment-confirmation/*
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  InstanceLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+
+  Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: DefaultRoute
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref InstanceLaunchTemplate
+        Version: !GetAtt InstanceLaunchTemplate.LatestVersionNumber
+      ImageId: !Ref AmiId
+      InstanceType: t4g.small
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Ref "AWS::StackName"
+      # Runs once, on first boot. It installs tools and starts no app.
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          # The Elastic IP is attached after launch; until then there is no route out.
+          for attempt in $(seq 60); do
+            curl -fsS -o /dev/null https://github.com && break
+            sleep 5
+          done
+          dnf install -y docker git
+          systemctl enable --now docker
+          compose_version=v5.5.1
+          compose_sha256=732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+            "https://github.com/docker/compose/releases/download/$compose_version/docker-compose-linux-aarch64"
+          echo "$compose_sha256  /usr/local/lib/docker/cli-plugins/docker-compose" | sha256sum -c -
+          chmod 755 /usr/local/lib/docker/cli-plugins/docker-compose
+          install -d -m 755 -o root -g root /opt/appointment-confirmation
+          install -d -m 700 -o root -g root /opt/appointment-confirmation/dev /opt/appointment-confirmation/prod
+          git clone https://github.com/${GitHubRepository}.git /opt/appointment-confirmation/repo
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref Instance
+
+  DevDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub ${AWS::StackName} dev
+        Enabled: true
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: app
+            DomainName: !Sub
+              - ec2-${Dashed}.compute-1.amazonaws.com
+              - Dashed: !Join ["-", !Split [".", !Ref ElasticIp]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+              HTTPPort: 8081
+        DefaultCacheBehavior:
+          TargetOriginId: app
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+          OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3 # Managed-AllViewer
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  ProdDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub ${AWS::StackName} prod
+        Enabled: true
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: app
+            DomainName: !Sub
+              - ec2-${Dashed}.compute-1.amazonaws.com
+              - Dashed: !Join ["-", !Split [".", !Ref ElasticIp]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+              HTTPPort: 8082
+        DefaultCacheBehavior:
+          TargetOriginId: app
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+          OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3 # Managed-AllViewer
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  DevPublicBaseUrl:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /appointment-confirmation/dev/public-base-url
+      Type: String
+      Value: !Sub https://${DevDistribution.DomainName}
+
+  ProdPublicBaseUrl:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /appointment-confirmation/prod/public-base-url
+      Type: String
+      Value: !Sub https://${ProdDistribution.DomainName}
+
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateGitHubOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If [CreateGitHubOidcProvider, !Ref GitHubOidcProvider, !Ref ExistingGitHubOidcProviderArn]
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubRepository}:ref:refs/heads/main
+                  - !Sub repo:${GitHubRepository}:environment:dev
+                  - !Sub repo:${GitHubRepository}:environment:production
+      Policies:
+        - PolicyName: run-deploy-command
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ec2:us-east-1:${AWS::AccountId}:instance/${Instance}
+                  - !Sub arn:${AWS::Partition}:ssm:us-east-1::document/AWS-RunShellScript
+              # These two actions do not support resource-level permissions.
+              - Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                Resource: "*"
+
+Outputs:
+  DevUrl:
+    Description: Dev address, stored in /appointment-confirmation/dev/public-base-url
+    Value: !Sub https://${DevDistribution.DomainName}
+  ProdUrl:
+    Description: Production address, stored in /appointment-confirmation/prod/public-base-url
+    Value: !Sub https://${ProdDistribution.DomainName}
+  InstanceId:
+    Description: The instance the deploy workflows (#19) send commands to
+    Value: !Ref Instance
+  DeployRoleArn:
+    Description: The role the deploy workflows (#19) assume through GitHub OIDC
+    Value: !GetAtt DeployRole.Arn

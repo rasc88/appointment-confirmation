@@ -21,6 +21,12 @@ An npm workspaces monorepo:
 - `backend/` - Express 5 + TypeScript API, Prisma schema and migrations
 - `frontend/` - Vite + React + TypeScript
 - `e2e/` - Playwright tests against the Docker Compose stack
+- `infra/` - the AWS side (decision 37): `cloudformation.yaml` (the stack),
+  `compose.yaml` and `compose.dev.yaml` (one environment on the instance),
+  and `deploy.sh <dev|prod> <image-ref>`, which runs as root on the
+  instance, over SSM from #19's workflows. Agents never deploy and never
+  run `aws`; they check these files offline with `docker compose config`
+  and `bash -n`. The owner's steps are in the README's "Deploy to AWS"
 
 Commands
 

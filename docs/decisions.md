@@ -418,6 +418,68 @@ The backend starts `@opentelemetry/sdk-node` only when `OTEL_EXPORTER_OTLP_ENDPO
 
 Why: spans built by the app hold only the attributes it chooses, so no header, raw path, or query can leak, whereas `instrumentation-http` records `url.path` and needs an allow-list to undo it, and `instrumentation-express` needs an ESM loader hook alongside `tsx`. Prisma's instrumentation was left out for the same reason: its spans carry SQL text and another version pin, for little gain at this size (#54). With no module patching, importing the telemetry module first in `server.ts` is enough, and tests, the seed, and local runs never start the SDK. Off by default means local development, tests, CI, and e2e need no account and send nothing. A pino-style logger was not needed for two levels and a handful of lines. Counting only `5xx` keeps token guessing (`404`, `429`) and late clicks (`409`) from paging anyone. Cost accepted: traces have one span per request, with no database child spans, and a failure before the request reaches the app (CloudFront, a stopped container) is not counted.
 
+### 37. The AWS stack is one CloudFormation template; the host deploys from a git checkout with secrets made on the instance
+
+`infra/cloudformation.yaml` creates, in `us-east-1` only (a `Rules`
+assertion), its own VPC with one public subnet, a `t4g.small` on Amazon
+Linux 2023 arm64 with an Elastic IP, IMDSv2 required, and no key pair, one
+security group rule (TCP 8081-8082 from CloudFront's origin-facing prefix
+list), two CloudFront distributions with caching off, the two
+`public-base-url` String parameters, and a GitHub OIDC role that may only
+run `AWS-RunShellScript` on that instance. The AMI is a plain
+`AWS::EC2::Image::Id` parameter. First-boot user data installs Docker,
+git, and a pinned, checksummed Compose plugin, clones the repository, and
+starts nothing. `infra/deploy.sh` writes each environment's `.env` and
+runs `infra/compose.yaml` as project `ac-dev` or `ac-prod`, adding
+`infra/compose.dev.yaml` (the seed step) for dev only, then prunes unused
+images. It pulls only images not already on the host (`--policy missing`).
+
+Why:
+- **Amazon Linux 2023**: the SSM agent and the AWS CLI come preinstalled,
+  and `deploy.sh` needs the CLI for Parameter Store; only the Compose
+  plugin is downloaded, pinned and checked against its SHA-256.
+- **Plain AMI parameter**: an SSM-path parameter type is re-resolved on
+  every stack update, so a newer AMI would silently replace the instance
+  and lose both databases.
+- **Secrets**: `SESSION_SECRET` and the Postgres password are generated on
+  the instance by the first deploy and never leave it, so there is no
+  owner step and nothing to leak in transit, and a later deploy reuses them
+  and signs nobody out. The only external secret, the Grafana OTLP
+  headers, is a SecureString the owner creates, because CloudFormation
+  cannot create SecureStrings and a `NoEcho` parameter would end up in user
+  data. The stack writes `PUBLIC_BASE_URL` to a String parameter, so the
+  instance never depends on the distributions at boot.
+- **Compose files from a git checkout** of the public repository: #19
+  checks out the image's commit before calling `deploy.sh`, so Compose
+  file and image always match, and no Compose content is duplicated in
+  user data.
+- **Dev seeds through `compose.dev.yaml`, production never**: the same
+  command as local Compose (decision 33); the production files have no
+  seed step, and the seed's own `APP_ENV=production` refusal is the second
+  guard. Dev is a public demo with the demo logins (owner decision).
+- **One security group rule for 8081-8082**: a prefix-list reference
+  counts as the list's maximum size (55 for CloudFront) against the
+  60-rules-per-group quota, so two rules would exceed it. Any CloudFront
+  distribution can reach the ports, not only ours; accepted, because the
+  app has its own auth and rate limits, and a secret origin header would
+  be one more secret to manage.
+- **Own VPC and an Elastic IP**: CloudFront needs a DNS name as its
+  origin, and the Elastic IP keeps it stable across stop and start at the
+  same price as an auto-assigned public IPv4; deleting the stack removes
+  everything it made. The template builds the origin name
+  (`ec2-a-b-c-d.compute-1.amazonaws.com`) from the address, which is why
+  the stack is limited to `us-east-1`.
+- **Pruning images**: on a 20 GiB disk old tags would fill it; a rollback
+  pulls its tag again from GHCR. Pulling only missing images lets a tag
+  built on the instance deploy too, and a tag that is neither local nor in
+  the registry still fails before anything running is touched.
+- **No template linter and no new tools** (owner decision): QA reads the
+  template; mistakes show up when the owner deploys.
+
+Cost accepted: there are no backups (owner decision), so losing the
+instance or deleting the stack loses all data; a mutable tag already on
+the host is not pulled again, so deploys use immutable tags.
+
 ## Process
 
 ### 13. One agent at a time
