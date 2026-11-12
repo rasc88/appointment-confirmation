@@ -1,4 +1,5 @@
 import { trace } from '@opentelemetry/api';
+import { metrics, NodeSDK } from '@opentelemetry/sdk-node';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -8,6 +9,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 import { prisma } from './db.js';
+import { zeroResponseFailures } from './metrics.js';
 import { shutdownTelemetry, startTelemetry } from './telemetry.js';
 import { createTestStaff, resetDatabase, signIn } from './test-helpers.js';
 
@@ -133,6 +135,7 @@ describe('with an endpoint', () => {
     expect(traceBodies.join('')).toContain('/{*splat}');
     expect(metricBodies.join('')).toContain('appointment_responses_total');
     expect(metricBodies.join('')).toContain('appointments_created_total');
+    expect(metricBodies.join('')).toContain('appointment_response_failures_total');
     expect(logBodies.join('')).toContain('request');
   });
 
@@ -158,5 +161,40 @@ describe('with an endpoint', () => {
         expect(body).not.toContain(detected);
       }
     }
+  });
+});
+
+describe('the response failure counter', () => {
+  it('starts at 0 for every action and actor, with environment and version', async () => {
+    vi.stubEnv('APP_ENV', 'zero-env');
+    vi.stubEnv('APP_VERSION', 'v0.0.1');
+    const exporter = new metrics.InMemoryMetricExporter(metrics.AggregationTemporality.CUMULATIVE);
+    const reader = new metrics.PeriodicExportingMetricReader({ exporter, exportIntervalMillis: 3_600_000 });
+    const sdk = new NodeSDK({ autoDetectResources: false, metricReaders: [reader] });
+    sdk.start();
+
+    zeroResponseFailures();
+    await reader.forceFlush();
+
+    const points = exporter
+      .getMetrics()
+      .flatMap((resourceMetrics) => resourceMetrics.scopeMetrics)
+      .flatMap((scopeMetrics) => scopeMetrics.metrics)
+      .filter((metric) => metric.descriptor.name === 'appointment_response_failures_total')
+      .flatMap((metric) => (metric.dataPointType === metrics.DataPointType.SUM ? metric.dataPoints : []))
+      .map((point) => ({ attributes: point.attributes, value: point.value }));
+    const deployment = { environment: 'zero-env', version: 'v0.0.1' };
+    expect(points).toHaveLength(4);
+    expect(points).toEqual(
+      expect.arrayContaining([
+        { attributes: { action: 'confirm', actor: 'client', ...deployment }, value: 0 },
+        { attributes: { action: 'confirm', actor: 'staff', ...deployment }, value: 0 },
+        { attributes: { action: 'cancel', actor: 'client', ...deployment }, value: 0 },
+        { attributes: { action: 'cancel', actor: 'staff', ...deployment }, value: 0 },
+      ]),
+    );
+    await sdk.shutdown();
+    await shutdownTelemetry();
+    vi.unstubAllEnvs();
   });
 });

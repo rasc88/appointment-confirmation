@@ -416,7 +416,7 @@ test instead of fixing it.
 
 The backend starts `@opentelemetry/sdk-node` only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, with the http/protobuf OTLP exporters, batch span and log processors at their defaults, and a 60-second metric reader. There are no auto-instrumentations. One Express middleware makes the request span, the request log line, and the duration histogram, naming the route only by its Express template; the four §15.1 counters are added in the route handlers and the error handler. Logs are JSON lines from a small logger module that also emits OTLP log records. A response failure is a `5xx` on a confirm or cancel.
 
-Why: spans built by the app hold only the attributes it chooses, so no header, raw path, or query can leak, whereas `instrumentation-http` records `url.path` and needs an allow-list to undo it, and `instrumentation-express` needs an ESM loader hook alongside `tsx`. Prisma's instrumentation was left out for the same reason: its spans carry SQL text and another version pin, for little gain at this size (#54). With no module patching, importing the telemetry module first in `server.ts` is enough, and tests, the seed, and local runs never start the SDK. Off by default means local development, tests, CI, and e2e need no account and send nothing. A pino-style logger was not needed for two levels and a handful of lines. Counting only `5xx` keeps token guessing (`404`, `429`) and late clicks (`409`) from paging anyone. Cost accepted: traces have one span per request, with no database child spans, and a failure before the request reaches the app (CloudFront, a stopped container) is not counted.
+Why: spans built by the app hold only the attributes it chooses, so no header, raw path, or query can leak, whereas `instrumentation-http` records `url.path` and needs an allow-list to undo it, and `instrumentation-express` needs an ESM loader hook alongside `tsx`. Prisma's instrumentation was left out for the same reason: its spans carry SQL text and another version pin, for little gain at this size (#54). With no module patching, importing the telemetry module first in `server.ts` is enough, and tests, the seed, and local runs never start the SDK. Off by default means local development, tests, CI, and e2e need no account and send nothing. A pino-style logger was not needed for two levels and a handful of lines. Counting only `5xx` keeps token guessing (`404`, `429`) and late clicks (`409`) from paging anyone. Cost accepted: traces have one span per request, with no database child spans, and a failure before the request reaches the app (CloudFront, a stopped container) is not counted. `appointment_response_failures_total` is added `0` for the four `action` × `actor` pairs when the SDK starts, because the counter otherwise appears with the first `5xx` and `increase()` ignores a series' first sample, so a new version's (every deploy's) first failures would read as 0 and never alert; it costs 4 series per environment and version, and a query-only fix (`x unless x offset 5m`) was rejected as hard to read and check offline.
 
 ### 37. The AWS stack is one CloudFormation template; the host deploys from a git checkout with secrets made on the instance
 
@@ -590,6 +590,64 @@ Why:
 Cost accepted: no password confirmation, so a mistyped password means
 creating a second account with another email (there is no password
 reset); `aws ssm send-command` cannot run it, because it has no TTY.
+
+### 40. The dashboard and the alert are repository files that an owner-run `curl` script pushes to Grafana
+
+`observability/dashboard.json` (a bare dashboard model, uid
+`appointment-confirmation`, 8 panels, variables `datasource`,
+`environment`, `version`) and `observability/alert-rule.json` (one
+Grafana-managed rule in provisioning-API format, uid
+`clients-cannot-confirm`) are the source of truth. `observability/push.sh`,
+run by the owner with `GRAFANA_URL` and a service-account `GRAFANA_TOKEN`,
+looks up the `grafanacloud-*-prom` datasource, checks that the
+`grafana-default-email` contact point exists, then creates or updates the
+folder (uid `appointment-confirmation-folder`, title
+`appointment-confirmation`; folder and dashboard uids share one namespace,
+so they cannot both be `appointment-confirmation`), the dashboard (`POST /api/dashboards/db`, `overwrite: true`), and
+the rule (`/api/v1/provisioning/alert-rules`, with `X-Disable-Provenance`
+so it stays editable in the UI), and sets the rule group's interval to 60
+seconds. It needs only `bash`, `curl`, and `jq`, passes the token to curl
+through a file descriptor, and deletes nothing. Agents check the files
+offline (`jq empty`, `bash -n`, `--dry-run`, a stubbed `curl`).
+
+The rule's query `A` returns only breaching series: per environment and
+version, `increase(appointment_response_failures_total[5m])` of 1 or more
+on production or 3 or more on dev, joined by `or`; condition `C` is
+`$A > 0`, `for: 2m`, evaluated every minute, no data is OK, an evaluation
+error is `Error`. It notifies `grafana-default-email` directly through
+`notification_settings`.
+
+Why:
+- **Files and `curl`**: one dashboard and one rule do not justify a
+  Grafana CLI, Terraform provider, or grizzly with its own state and
+  install step; `curl` and `jq` are already used by the deploy scripts.
+  Keeping the stack URL, datasource UID, and token out of the repository
+  means they enter only through the script's environment and lookups.
+- **One rule with both thresholds**: one uid, one `alertname`, one panel
+  link, and one `for:` for the on-call agent (#22); two rules would differ
+  only in one number. Any other `environment` value never alerts.
+- **Production 1 or more, dev 3 or more** (owner decision): in production a
+  single failed confirm is a client who could not answer. The zero start
+  of the failure counter (decision 36) is what makes a version's first
+  failure count. With 60-second exports, one failure keeps `increase()`
+  at 1 or more for about 4 minutes, enough for `for: 2m`, so it notifies
+  about 3 to 4 minutes after it happens.
+- **`grafana-default-email`** (owner decision): the stack's built-in
+  contact point emails the Grafana account address, so no address is
+  stored or passed, and the stack's notification policy tree is never
+  touched.
+- **Grouping by environment and version**: every alert instance carries
+  `version`, which spec section 15.2 and the on-call agent need.
+- **No data is OK**: telemetry is off until the owner sets the OTLP values,
+  and a quiet environment is not an outage.
+
+Cost accepted: dev's 3 is approximate, because `increase()` extrapolates to
+the window's edges; a dev burst that straddles a deploy is counted per
+version; a re-push saves a new dashboard version even when nothing
+changed; if Grafana Cloud translates the metric names differently from
+the Prometheus rules (dots to `_`, `_total` on counters, `_seconds` on
+the histogram), the queries need a follow-up, which README step "Check
+the names" shows at once.
 
 ## Process
 

@@ -5,7 +5,7 @@ import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-proto';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { logs, metrics, NodeSDK, resources, tracing } from '@opentelemetry/sdk-node';
 import { setTimeout as delay } from 'node:timers/promises';
-import { deploymentAttributes } from './metrics.js';
+import { deploymentAttributes, zeroResponseFailures } from './metrics.js';
 
 const metricExportIntervalMs = 60_000;
 const shutdownTimeoutMs = 5_000;
@@ -46,6 +46,7 @@ export function startTelemetry() {
     logRecordProcessors: [new logs.BatchLogRecordProcessor({ exporter: new OTLPLogExporter() })],
   });
   sdk.start();
+  zeroResponseFailures();
   return true;
 }
 
