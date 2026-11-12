@@ -4,6 +4,8 @@ import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from './app.js';
 import { prisma } from './db.js';
+import { Prisma } from './generated/prisma/client.js';
+import { describeFailure } from './staff-create.js';
 import { createTestStaff, resetDatabase } from './test-helpers.js';
 
 const usage = 'Usage: npm run staff:create (takes no arguments; it prompts for name, email, and password)\n';
@@ -158,5 +160,16 @@ describe('npm run staff:create', { timeout: 30_000 }, () => {
     expect(result.stderr).toMatch(/^Could not create the staff account: (P\d{4}|database error)\n$/);
     expect(result.output).not.toContain(databaseUrl);
     expectNoTypedValues(result.output, validAnswers);
+  });
+});
+
+describe('describeFailure', () => {
+  it.each([
+    ['a Prisma code', 'P1001', 'Could not create the staff account: P1001'],
+    ['a driver code', 'ECONNREFUSED', 'Could not create the staff account: database error'],
+  ])('prints %s only when it is a Prisma code', (label, code, expected) => {
+    const error = new Prisma.PrismaClientKnownRequestError('secret message', { code, clientVersion: 'test' });
+
+    expect(describeFailure(error)).toBe(expected);
   });
 });

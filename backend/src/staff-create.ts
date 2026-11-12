@@ -8,6 +8,8 @@ import { createStaffMemberSchema, isUniqueViolation } from './staff-routes.js';
 import { parseBody } from './validation.js';
 
 const usage = 'Usage: npm run staff:create (takes no arguments; it prompts for name, email, and password)\n';
+/** The pg adapter can put a driver code such as `ECONNREFUSED` in `code`; only Prisma's own codes are printed. */
+const prismaCodePattern = /^P\d{4}$/;
 const inputEndedMessage = 'Input ended before all answers were given; nothing was created.\n';
 
 let isOutputMuted = false;
@@ -49,15 +51,15 @@ async function readAnswers() {
 }
 
 /** Never includes the error message: Prisma messages echo query arguments and the URL holds the password. */
-function describeFailure(error: unknown) {
+export function describeFailure(error: unknown) {
   if (error instanceof ApiError) {
     return `${error.field}: ${error.message}`;
   }
   if (isUniqueViolation(error)) {
     return 'email: Another staff account already has this email.';
   }
-  const code = error instanceof Prisma.PrismaClientKnownRequestError ? error.code : 'database error';
-  return `Could not create the staff account: ${code}`;
+  const isPrismaCode = error instanceof Prisma.PrismaClientKnownRequestError && prismaCodePattern.test(error.code);
+  return `Could not create the staff account: ${isPrismaCode ? error.code : 'database error'}`;
 }
 
 async function createStaffAccount() {
@@ -86,4 +88,6 @@ async function createStaffAccount() {
   }
 }
 
-await createStaffAccount();
+if (import.meta.main) {
+  await createStaffAccount();
+}
