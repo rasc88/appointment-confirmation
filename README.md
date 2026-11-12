@@ -171,6 +171,31 @@ it gets AWS credentials. A dev that runs a `manual` build (the optional
 first bring-up), is unhealthy, or does not answer cannot be promoted: the
 run stops before any AWS call.
 
+#### Create the first production staff account
+
+1. Do this once, after a promotion whose image contains this command.
+2. Open a Session Manager shell (EC2 console → Connect → Session Manager,
+   or `aws ssm start-session --region us-east-1 --target <InstanceId>`).
+   `aws ssm send-command` / Run Command does not work, because it gives
+   no TTY, so the prompts cannot be answered.
+3. Run exactly:
+
+   ```sh
+   sudo docker compose --project-name ac-prod \
+     --env-file /opt/appointment-confirmation/prod/.env \
+     -f /opt/appointment-confirmation/repo/infra/compose.yaml \
+     exec app npm run staff:create
+   ```
+
+   `sudo` is needed because the env file is root-only and Docker needs
+   root. Production uses `compose.yaml` alone (no `compose.dev.yaml`), the
+   same as `deploy.sh`. `exec` allocates a TTY by default, so do not add
+   `-T`.
+4. Answer the prompts: `Name`, `Email`, `Password`. The password is not
+   shown while it is typed.
+5. Sign in at `<ProdUrl>`, then add further accounts from the Staff page.
+6. Production never has demo data, and `npm run db:seed` refuses there.
+
 #### Roll back
 
 Revert the bad commit on `main` through a pull request. `Deploy` builds

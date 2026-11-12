@@ -16,7 +16,7 @@ const emailPattern = /^[^\s@]+@[^\s@]+$/;
 const emailMessage = 'Enter a valid email address.';
 const nameSchema = stringOfLength(1, 80, 'Must be between 1 and 80 characters.');
 
-const createStaffMemberSchema = z.strictObject({
+export const createStaffMemberSchema = z.strictObject({
   name: nameSchema,
   email: z
     .string({ error: emailMessage })
@@ -31,7 +31,7 @@ const updateStaffMemberSchema = z
   })
   .refine((body) => Object.keys(body).length > 0, 'Change at least one field.');
 
-function isUniqueViolation(error: unknown) {
+export function isUniqueViolation(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 

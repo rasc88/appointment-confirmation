@@ -552,6 +552,45 @@ until the owner finishes setup, every `Deploy` run on `main` is red at
 `deploy-dev`; the first real run, after merge, is the first time the
 arm64 build and the SSM path are exercised.
 
+### 39. The first production account comes from a prompt-only `npm run staff:create`
+
+`npm run staff:create` (`backend/src/staff-create.ts`) takes no arguments
+and asks exactly three questions, in order: `Name: `, `Email: `,
+`Password: `. The password is asked once (owner decision on #56). On a TTY
+the password is hidden by giving `node:readline` an output stream that
+drops writes while it is read, with no new dependency; piped stdin is read
+one line per answer. It validates with the route's own
+`createStaffMemberSchema` and `parseBody`, stores the lowercased email and
+a `hashPassword` (cost 12) hash, and detects a duplicate email from
+Prisma's `P2002` with the route's `isUniqueViolation`. Exit codes: `0`
+created, `1` invalid answer, duplicate email, early end of input, or a
+database error, `2` any argument. A validation error exits without asking
+again. Errors print a field message or a Prisma code, never an error
+message. It needs only `DATABASE_URL`, does not import `config.ts` or
+`telemetry.ts`, has no `APP_ENV` guard, and no "only when empty" guard.
+
+Why:
+- **Prompts, no arguments**: a password on the command line ends up in
+  shell history and the process list; refusing arguments keeps it out of
+  both. Output names only the new id, so the name, email, and password
+  never reach a log or a Session Manager transcript.
+- **Password asked once** (owner decision): three prompts are enough for a
+  command run once, by the owner, who signs in right after.
+- **One schema with the route**: the command and `POST /v1/staff` cannot
+  drift apart on what a valid account is.
+- **No `APP_ENV` guard**: production is the reason the command exists;
+  production never gets demo data (decisions 33 and 37), the owner's call
+  on #18.
+- **Duplicates refused instead of a non-empty table**: a typo in the first
+  run can be fixed by running it again with the right email, and a second
+  account is harmless, while a duplicate would be ambiguous at sign-in.
+- **Error codes only**: Prisma messages echo query arguments and the
+  connection string holds the database password.
+
+Cost accepted: no password confirmation, so a mistyped password means
+creating a second account with another email (there is no password
+reset); `aws ssm send-command` cannot run it, because it has no TTY.
+
 ## Process
 
 ### 13. One agent at a time
