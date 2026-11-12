@@ -292,6 +292,7 @@ flowchart LR
 - **One instance, two environments.** Dev and production are separate Docker Compose projects on the same instance, each with its own app container, Postgres container, data volume, and env file. They share only the host.
 - **HTTPS without a domain.** Each environment gets its own CloudFront distribution with its default `*.cloudfront.net` address and certificate. CloudFront terminates HTTPS and forwards to the app's port over HTTP. The security group opens ports 8081 and 8082 only to CloudFront's origin-facing IP list, so the instance doesn't answer the public internet directly. No reverse proxy runs on the instance.
 - **No caching.** The distributions forward every method, header, cookie, and query string, because every response is dynamic.
+- **Secrets stay on the instance.** Each environment's `SESSION_SECRET` and database password are generated on the instance by its first deploy and kept in a root-only file there. Parameter Store holds only each environment's `PUBLIC_BASE_URL` (written by the stack) and the Grafana OTLP endpoint and headers (the headers as a SecureString the owner creates).
 - **Memory limits.** Each container has a memory limit, so a misbehaving dev deploy cannot starve production.
 - **No collector.** The app exports telemetry directly to Grafana Cloud, which saves running a collector on a small instance.
 
