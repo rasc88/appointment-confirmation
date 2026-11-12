@@ -181,7 +181,7 @@ describe('the response failure counter', () => {
       .flatMap((resourceMetrics) => resourceMetrics.scopeMetrics)
       .flatMap((scopeMetrics) => scopeMetrics.metrics)
       .filter((metric) => metric.descriptor.name === 'appointment_response_failures_total')
-      .flatMap((metric) => metric.dataPoints)
+      .flatMap((metric) => (metric.dataPointType === metrics.DataPointType.SUM ? metric.dataPoints : []))
       .map((point) => ({ attributes: point.attributes, value: point.value }));
     const deployment = { environment: 'zero-env', version: 'v0.0.1' };
     expect(points).toHaveLength(4);
