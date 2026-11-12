@@ -23,10 +23,20 @@ An npm workspaces monorepo:
 - `e2e/` - Playwright tests against the Docker Compose stack
 - `infra/` - the AWS side (decision 37): `cloudformation.yaml` (the stack),
   `compose.yaml` and `compose.dev.yaml` (one environment on the instance),
-  and `deploy.sh <dev|prod> <image-ref>`, which runs as root on the
-  instance, over SSM from #19's workflows. Agents never deploy and never
+  `deploy.sh <dev|prod> <image-ref>`, which runs as root on the
+  instance, and `remote-deploy.sh <dev|prod> <commit-sha>`, which runs on
+  the GitHub runner and calls `deploy.sh` over SSM, then waits for
+  `/v1/health` to report the SHA. Agents never deploy and never
   run `aws`; they check these files offline with `docker compose config`
   and `bash -n`. The owner's steps are in the README's "Deploy to AWS"
+- `.github/workflows/deploy.yml` (`Deploy`) - on every push to `main`,
+  builds one arm64 image tagged with the commit SHA, pushes it to GHCR,
+  and deploys it to dev; `.github/workflows/promote.yml` (`Promote to
+  production`) - run by hand by the owner only, deploys the SHA dev
+  reports to production (decision 38). Agents never run `promote.yml`,
+  never re-run `Deploy` jobs, and check these files offline only (YAML
+  parse, `bash -n` on each `run:` block, a stubbed run of
+  `remote-deploy.sh`)
 
 Commands
 

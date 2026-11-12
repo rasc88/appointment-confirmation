@@ -120,10 +120,11 @@ and never pass `--admin` to `gh pr merge`.
 ## Releases
 
 - Every merge to `main` builds one image and deploys it to **dev**
-  automatically
+  automatically (`.github/workflows/deploy.yml`)
 - **Production** changes only when the repository owner runs the promotion
-  workflow by hand. It deploys the exact image already running on dev.
-  No agent runs it
+  workflow (`.github/workflows/promote.yml`) by hand and approves it in
+  the `production` environment. It deploys the exact image already running
+  on dev. No agent runs it
 
 ## Destructive commands stall the run
 

@@ -1,0 +1,82 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Log in to GHCR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      # A re-run must never replace a tag that dev or production may already run.
+      - name: Check for an existing image
+        id: existing
+        run: |
+          if docker manifest inspect ghcr.io/rasc88/appointment-confirmation:${{ github.sha }} > /dev/null 2>&1; then
+            echo "is_pushed=true" >> "$GITHUB_OUTPUT"
+            echo "ghcr.io/rasc88/appointment-confirmation:${{ github.sha }} already exists; skipping build and push"
+          else
+            echo "is_pushed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build
+        if: steps.existing.outputs.is_pushed != 'true'
+        run: |
+          docker build --platform linux/arm64 --build-arg APP_VERSION=${{ github.sha }} --label org.opencontainers.image.source=https://github.com/rasc88/appointment-confirmation -t ghcr.io/rasc88/appointment-confirmation:${{ github.sha }} .
+          docker image inspect --format '{{.Os}}/{{.Architecture}}' ghcr.io/rasc88/appointment-confirmation:${{ github.sha }}
+      - name: Push
+        if: steps.existing.outputs.is_pushed != 'true'
+        run: docker push ghcr.io/rasc88/appointment-confirmation:${{ github.sha }}
+
+  deploy-dev:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: dev
+      url: ${{ vars.DEV_URL }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check repository variables
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          AWS_INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+          DEV_URL: ${{ vars.DEV_URL }}
+        run: |
+          is_missing=false
+          for name in AWS_DEPLOY_ROLE_ARN AWS_INSTANCE_ID DEV_URL; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Repository variable $name is not set. See README.md, Deploy to AWS > Continuous deployment."
+              is_missing=true
+            fi
+          done
+          if [[ "$is_missing" == true ]]; then
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Deploy to dev
+        env:
+          INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+          APP_URL: ${{ vars.DEV_URL }}
+        run: infra/remote-deploy.sh dev ${{ github.sha }}
