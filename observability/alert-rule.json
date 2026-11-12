@@ -1,7 +1,7 @@
 {
   "uid": "clients-cannot-confirm",
   "orgID": 1,
-  "folderUID": "appointment-confirmation",
+  "folderUID": "appointment-confirmation-folder",
   "ruleGroup": "appointment-confirmation",
   "title": "Clients cannot confirm",
   "condition": "C",

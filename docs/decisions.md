@@ -601,7 +601,9 @@ Grafana-managed rule in provisioning-API format, uid
 run by the owner with `GRAFANA_URL` and a service-account `GRAFANA_TOKEN`,
 looks up the `grafanacloud-*-prom` datasource, checks that the
 `grafana-default-email` contact point exists, then creates or updates the
-folder, the dashboard (`POST /api/dashboards/db`, `overwrite: true`), and
+folder (uid `appointment-confirmation-folder`, title
+`appointment-confirmation`; folder and dashboard uids share one namespace,
+so they cannot both be `appointment-confirmation`), the dashboard (`POST /api/dashboards/db`, `overwrite: true`), and
 the rule (`/api/v1/provisioning/alert-rules`, with `X-Disable-Provenance`
 so it stays editable in the UI), and sets the rule group's interval to 60
 seconds. It needs only `bash`, `curl`, and `jq`, passes the token to curl

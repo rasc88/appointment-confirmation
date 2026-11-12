@@ -9,7 +9,8 @@
 # Exit codes: 0 done, 1 a lookup or request failed, 2 bad arguments or settings.
 set -euo pipefail
 
-folder_uid=appointment-confirmation
+folder_uid=appointment-confirmation-folder
+folder_title=appointment-confirmation
 rule_group=appointment-confirmation
 rule_uid=clients-cannot-confirm
 contact_point=grafana-default-email
@@ -69,7 +70,7 @@ require_2xx() {
 }
 
 folder_payload() {
-  jq -n --arg uid "$folder_uid" '{uid: $uid, title: $uid}'
+  jq -n --arg uid "$folder_uid" --arg title "$folder_title" '{uid: $uid, title: $title}'
 }
 
 dashboard_payload() {
@@ -121,7 +122,8 @@ check_contact_point() {
   step="2. check the contact point"
   request GET "/api/v1/provisioning/contact-points?name=$contact_point"
   require_2xx
-  if ! jq -e --arg name "$contact_point" 'any(.[]; .name == $name)' <<<"$body" >/dev/null; then
+  # Grafana filters by name itself; each item's .name is the integration's, not the contact point's.
+  if ! jq -e 'length > 0' <<<"$body" >/dev/null; then
     echo "$step: contact point $contact_point does not exist; nothing was written" >&2
     exit 1
   fi
