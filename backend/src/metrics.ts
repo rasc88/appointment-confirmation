@@ -4,6 +4,8 @@ export type ResponseAction = 'confirm' | 'cancel';
 export type ResponseActor = 'client' | 'staff';
 
 const durationBucketsSeconds = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5];
+const responseActions: ResponseAction[] = ['confirm', 'cancel'];
+const responseActors: ResponseActor[] = ['client', 'staff'];
 
 /** The same values `/v1/health` reports. On every data point, because Grafana Cloud keeps resource attributes only in `target_info`. */
 export function deploymentAttributes() {
@@ -31,6 +33,16 @@ export function countAppointmentResponse(action: ResponseAction, actor: Response
 
 export function countAppointmentResponseFailure(action: ResponseAction, actor: ResponseActor) {
   addOne('appointment_response_failures_total', { action, actor });
+}
+
+/** Gives every version a 0 sample, so `increase()` counts its first failures (decision 36). */
+export function zeroResponseFailures() {
+  const counter = meter().createCounter('appointment_response_failures_total');
+  for (const action of responseActions) {
+    for (const actor of responseActors) {
+      counter.add(0, { action, actor, ...deploymentAttributes() });
+    }
+  }
 }
 
 export function countAppointmentOutcome(outcome: 'attended' | 'no_show') {

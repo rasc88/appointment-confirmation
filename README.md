@@ -240,20 +240,82 @@ session secret and database password on its first run and keeps them in
 `/opt/appointment-confirmation/<env>/secrets.env`; they never leave the
 instance. #19 calls it over SSM for every deploy.
 
-### Telemetry
+### Telemetry and alerting
 
-Add the Grafana Cloud values (#21) whenever they exist. They take effect
-on the next deploy of that environment; set both or neither:
+The app sends traces, metrics, and logs to Grafana Cloud (decision 36).
+`observability/` holds the dashboard, the alert rule "Clients cannot
+confirm", and `push.sh`, which creates or updates both in your stack
+(decision 40). Only you run it; agents never hold a Grafana token.
 
-```sh
-aws ssm put-parameter --region us-east-1 --type String \
-  --name /appointment-confirmation/dev/otlp-endpoint --value '<endpoint>'
-aws ssm put-parameter --region us-east-1 --type SecureString \
-  --name /appointment-confirmation/dev/otlp-headers --value '<headers>'
-```
+1. Create a Grafana Cloud account and a free stack (a US East region is
+   closest to the instance). Note the stack URL,
+   `https://<stack>.grafana.net`.
+2. In the stack, Connections → "OpenTelemetry (OTLP)": create a token with
+   the metrics, logs, and traces write scopes. Copy the OTLP endpoint
+   (`https://otlp-gateway-<region>.grafana.net/otlp`) and the
+   `OTEL_EXPORTER_OTLP_HEADERS` value (`Authorization=Basic%20<base64>`).
+3. Put them in SSM for dev, set both or neither:
 
-Repeat with `prod` in the names for production. Add `--overwrite` to
-change an existing value.
+   ```sh
+   aws ssm put-parameter --region us-east-1 --type String \
+     --name /appointment-confirmation/dev/otlp-endpoint --value '<endpoint>'
+   aws ssm put-parameter --region us-east-1 --type SecureString \
+     --name /appointment-confirmation/dev/otlp-headers --value '<headers>'
+   ```
+
+   Repeat with `prod` in the names for production. Add `--overwrite` to
+   change an existing value. They take effect on the next deploy of that
+   environment: a merge to `main` for dev, "Promote to production" for
+   production.
+4. Check the names: after a few requests on dev, run these in Explore.
+   Both return series, the second at 0 until something fails:
+
+   ```
+   http_server_request_duration_seconds_count{environment="dev"}
+   appointment_response_failures_total{environment="dev"}
+   ```
+
+   If Explore shows other names (for example dotted ones), the dashboard
+   and alert queries need a follow-up issue.
+5. Administration → Users and access → Service accounts: create
+   `appointment-confirmation-push` with the role Admin, add a token, and
+   keep it locally. You can delete the token after pushing. Narrower
+   option: role Editor plus the Cloud RBAC role "Alerting provisioning
+   writer".
+6. Alerting → Contact points → `grafana-default-email`: check that the
+   address is yours (replace a placeholder such as `<example@email.com>`),
+   and press Test to receive an email. The alert notifies this contact
+   point directly; `push.sh` neither creates nor changes contact points or
+   the notification policies.
+7. From the repository root, push the dashboard and the alert rule. Run it
+   again after any change to the files in `observability/`:
+
+   ```sh
+   GRAFANA_URL=https://<stack>.grafana.net GRAFANA_TOKEN=<token> observability/push.sh
+   ```
+
+   It needs `bash`, `curl`, and `jq`, prints one line per step and the
+   dashboard URL, and stops with the HTTP status and Grafana's answer on
+   any error. `observability/push.sh --dry-run` (with `GRAFANA_URL` only)
+   shows what it would send without sending anything.
+8. Check: the dashboard "Appointment confirmation" opens with
+   `environment=dev` selected, and Alerting → Alert rules shows
+   "Clients cannot confirm" as Normal.
+9. Optional fire drill, on dev only. The alert fires on dev at 3 or more
+   failed confirms or cancels in 5 minutes (production: 1 or more). From a
+   Session Manager shell, stop dev's database:
+
+   ```sh
+   sudo docker compose --project-name ac-dev \
+     --env-file /opt/appointment-confirmation/dev/.env \
+     -f /opt/appointment-confirmation/repo/infra/compose.yaml \
+     -f /opt/appointment-confirmation/repo/infra/compose.dev.yaml \
+     stop db
+   ```
+
+   Press confirm on a dev link at least 3 times, wait about 4 minutes for
+   the email, then start the database again with the same command ending
+   in `start db`.
 
 ### Update the stack
 

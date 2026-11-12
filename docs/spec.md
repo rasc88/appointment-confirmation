@@ -449,10 +449,10 @@ The key user journey is **client opens link → confirms or cancels**. It is ins
 | `appointment_response_failures_total` | counter | `action`, `actor`, `environment`, `version` |
 | `appointment_outcomes_total` | counter | `outcome` (`attended`, `no_show`), `environment`, `version` |
 
-`appointment_responses_total` counts confirms and cancels that change the status. `appointment_response_failures_total` counts confirm and cancel requests that end in a `5xx`; `4xx` answers are the app working as designed. Every request also records `http.server.request.duration` (seconds) by route template, method, and status code.
+`appointment_responses_total` counts confirms and cancels that change the status. `appointment_response_failures_total` counts confirm and cancel requests that end in a `5xx`; `4xx` answers are the app working as designed. `appointment_response_failures_total` is exported at 0 for each `action` and `actor` from the moment telemetry starts, so every new version has a zero baseline. Every request also records `http.server.request.duration` (seconds) by route template, method, and status code.
 
 ### 15.2 Alert
-**Clients cannot confirm:** fires when 3 or more `appointment_response_failures_total` increments occur within 5 minutes in one environment, sustained for 2 minutes. Each alert carries `service`, `environment`, `version`, and `severity` labels and a link to the dashboard filtered to that environment and version.
+**Clients cannot confirm:** fires when `appointment_response_failures_total` increases by 1 or more within 5 minutes in production, or by 3 or more in dev, counted per environment and version, sustained for 2 minutes and evaluated every minute. No data is OK. Notifications go to the Grafana Cloud stack's `grafana-default-email` contact point. Each alert carries `service`, `environment`, `version`, and `severity` labels and a link to the dashboard filtered to that environment and version. The dashboard and the rule live in `observability/` (decision 40).
 
 ### 15.3 On-Call Agent
 When the alert fires, a coding agent receives the alert, investigates with logs and traces, writes a fix with a test on a branch, and opens a pull request for human review. It never deploys to production.

@@ -37,6 +37,12 @@ An npm workspaces monorepo:
   never re-run `Deploy` jobs, and check these files offline only (YAML
   parse, `bash -n` on each `run:` block, a stubbed run of
   `remote-deploy.sh`)
+- `observability/` - Grafana Cloud as files (decision 40): `dashboard.json`
+  (the dashboard model), `alert-rule.json` (the "Clients cannot confirm"
+  rule in provisioning-API format), and `push.sh`, which the owner runs to
+  create or update both. Agents check them offline only: `jq empty
+  observability/*.json`, `bash -n observability/push.sh`, `--dry-run`,
+  and a stubbed `curl` run from the session scratchpad
 
 Commands
 
@@ -127,6 +133,15 @@ read `.env`; a value set in the shell wins, for example
   (`npm run db:seed:if-empty`). `docker compose down` keeps the data; only
   `docker compose down -v` removes it. To refresh the demo data, run
   `docker compose exec app npm run db:seed` (wipes every row)
+- `observability/push.sh` - owner only. With `GRAFANA_URL`
+  (`https://<stack>.grafana.net`, no trailing `/`) and `GRAFANA_TOKEN` in
+  the environment, it creates or updates the dashboard and the alert rule
+  in the owner's Grafana Cloud stack (README "Telemetry and alerting");
+  exit `0` done, `1` a lookup or request failed, `2` a missing or invalid
+  setting or argument. `observability/push.sh --dry-run` needs only
+  `GRAFANA_URL`, sends nothing, and prints each request it would make.
+  Agents run only `--dry-run` and the stubbed check (a fake `curl` first
+  on `PATH`), never push, and never hold a Grafana token
 - `GET /v1/health` - no session needed: `200` with
   `{"status":"ok","environment":...,"version":...}` after a database round
   trip, `503` with `"status":"unavailable"` when the database is down.

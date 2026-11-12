@@ -1,0 +1,71 @@
+{
+  "uid": "clients-cannot-confirm",
+  "orgID": 1,
+  "folderUID": "appointment-confirmation",
+  "ruleGroup": "appointment-confirmation",
+  "title": "Clients cannot confirm",
+  "condition": "C",
+  "data": [
+    {
+      "refId": "A",
+      "queryType": "",
+      "relativeTimeRange": {
+        "from": 600,
+        "to": 0
+      },
+      "datasourceUid": "__PROMETHEUS_UID__",
+      "model": {
+        "refId": "A",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "__PROMETHEUS_UID__"
+        },
+        "editorMode": "code",
+        "expr": "sum by (environment, version) (increase(appointment_response_failures_total{environment=\"production\"}[5m])) >= 1 or sum by (environment, version) (increase(appointment_response_failures_total{environment=\"dev\"}[5m])) >= 3",
+        "instant": true,
+        "range": false,
+        "legendFormat": "__auto",
+        "intervalMs": 1000,
+        "maxDataPoints": 43200
+      }
+    },
+    {
+      "refId": "C",
+      "queryType": "",
+      "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+      },
+      "datasourceUid": "__expr__",
+      "model": {
+        "refId": "C",
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        },
+        "type": "math",
+        "expression": "$A > 0",
+        "intervalMs": 1000,
+        "maxDataPoints": 43200
+      }
+    }
+  ],
+  "noDataState": "OK",
+  "execErrState": "Error",
+  "for": "2m",
+  "isPaused": false,
+  "labels": {
+    "service": "appointment-confirmation",
+    "severity": "critical"
+  },
+  "annotations": {
+    "summary": "{{ $values.A }} confirm/cancel requests failed with a 5xx in 5 minutes on {{ $labels.environment }} (version {{ $labels.version }})",
+    "description": "Thresholds: 1 or more in 5 minutes on production, 3 or more on dev, per environment and version, sustained 2 minutes.",
+    "__dashboardUid__": "appointment-confirmation",
+    "__panelId__": "2",
+    "dashboard_url": "__GRAFANA_URL__/d/appointment-confirmation/appointment-confirmation?var-environment={{ $labels.environment }}&var-version={{ $labels.version }}"
+  },
+  "notification_settings": {
+    "receiver": "grafana-default-email"
+  }
+}
