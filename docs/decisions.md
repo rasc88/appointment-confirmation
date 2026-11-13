@@ -646,7 +646,7 @@ the window's edges; a dev burst that straddles a deploy is counted per
 version; a re-push saves a new dashboard version even when nothing
 changed; if Grafana Cloud translates the metric names differently from
 the Prometheus rules (dots to `_`, `_total` on counters, `_seconds` on
-the histogram), the queries need a follow-up, which README step "Check
+the histogram), the queries need a follow-up, which `docs/operations.md` step "Check
 the names" shows at once.
 
 ### 41. The on-call agent is started by the owner's local bash poller
