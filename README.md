@@ -349,3 +349,68 @@ aws ssm delete-parameters --region us-east-1 --names \
   /appointment-confirmation/dev/otlp-endpoint /appointment-confirmation/dev/otlp-headers \
   /appointment-confirmation/prod/otlp-endpoint /appointment-confirmation/prod/otlp-headers
 ```
+
+## On-call agent
+
+`oncall/oncall.sh` is the trigger for the on-call engineer agent (spec
+section 15.3, decision 41). It runs on your machine, asks Grafana every 60
+seconds for firing "Clients cannot confirm" alerts, and for each new
+incident starts `claude -p --agent on-call-engineer` with the alert. The
+agent reads the code at the alert's `version`, pushes an `oncall-*`
+branch, and opens a pull request and an `mvp` incident issue. It cannot
+merge, deploy, run a workflow, or reach Grafana.
+
+Prerequisites:
+
+- `claude` logged in with your Claude subscription (run `claude` once), and
+  `gh` logged in (`gh auth status`): the agent's pull requests are opened
+  with your login, so `CI` runs on them
+- `jq`, `curl`, and coreutils `timeout`
+- `docker compose up -d db`, so the agent can run `npm test`
+- a clean checkout of this repository: the poller waits while
+  `git status --porcelain` shows anything. The agent switches the checkout
+  to its `oncall-*` branch and leaves it there
+
+Create the token: in the stack, Administration → Users and access →
+Service accounts, create `appointment-confirmation-oncall` with the role
+Viewer, add a token, and export it with the stack URL in the shell that
+runs the poller (never in a file in the repository):
+
+```sh
+export GRAFANA_URL=https://<stack>.grafana.net
+export GRAFANA_TOKEN=<viewer token>
+```
+
+Run it from the repository root:
+
+```sh
+oncall/oncall.sh                       # poll every 60 seconds until Ctrl-C
+oncall/oncall.sh --once                # one poll, then exit
+oncall/oncall.sh --base <branch>       # the agent works from and targets <branch> instead of main
+```
+
+Try it offline, with no token and without starting `claude`. The
+example's `version` must be a commit of this repository; to use the
+current one:
+
+```sh
+jq --arg v "$(git rev-parse HEAD)" '.data.alerts[].labels.version = $v' \
+  oncall/example-alerts.json > /tmp/alerts.json
+oncall/oncall.sh --dry-run --alert-file /tmp/alerts.json
+```
+
+`--dry-run` prints the exact `claude` command and prompt for each new
+incident. Without it, `--alert-file` starts the agent for real.
+
+State and logs, both git-ignored:
+
+- `oncall/state.json` lists the handled incident keys,
+  `<alertname>|<environment>|<version>|<activeAt>`. An alert that keeps
+  firing starts one agent; one that resolves and fires again starts a new
+  one. To let an incident run again, remove its key from the file
+- `oncall/logs/<yyyymmdd-hhmmss>-<environment>.jsonl` holds each session's
+  full output; the poller prints its path and the agent's final report
+
+What to do with the result: review the incident issue the agent opened.
+Its pull request goes through QA and CI like any other change, and reaches
+production only when you promote it.

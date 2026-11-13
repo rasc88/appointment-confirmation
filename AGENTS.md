@@ -43,6 +43,10 @@ An npm workspaces monorepo:
   create or update both. Agents check them offline only: `jq empty
   observability/*.json`, `bash -n observability/push.sh`, `--dry-run`,
   and a stubbed `curl` run from the session scratchpad
+- `oncall/` - the on-call agent's trigger (decision 41): `oncall.sh`, the
+  owner's local poller, and `example-alerts.json`, a saved response of
+  Grafana's alerts endpoint for offline checks. `state.json` (handled
+  incidents) and `logs/` (one session log per agent) are git-ignored
 
 Commands
 
@@ -142,6 +146,19 @@ read `.env`; a value set in the shell wins, for example
   `GRAFANA_URL`, sends nothing, and prints each request it would make.
   Agents run only `--dry-run` and the stubbed check (a fake `curl` first
   on `PATH`), never push, and never hold a Grafana token
+- `oncall/oncall.sh` - owner only. With `GRAFANA_URL` and a Viewer
+  `GRAFANA_TOKEN` in the environment, polls Grafana every 60 seconds for
+  firing "Clients cannot confirm" alerts and starts
+  `claude -p --agent on-call-engineer` once per new incident, which opens
+  an `oncall-*` pull request and an incident issue (README "On-call
+  agent"). `--once` polls once, `--base <branch>` (default `main`) is the
+  branch the agent works from and targets, `--alert-file <file>` reads a
+  saved response instead of Grafana (implies `--once`), and `--dry-run`
+  prints the `claude` command and prompt without starting it or writing
+  `oncall/state.json`. Exit `0` the poll and every agent succeeded, `1`
+  the poll or an agent failed, `2` a bad argument or setting. Agents run
+  only `--dry-run --alert-file` and the stubbed check (a fake `claude`
+  first on `PATH`, from the session scratchpad), never the real poller
 - `GET /v1/health` - no session needed: `200` with
   `{"status":"ok","environment":...,"version":...}` after a database round
   trip, `503` with `"status":"unavailable"` when the database is down.
