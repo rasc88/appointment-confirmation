@@ -12,6 +12,7 @@ Documents
 - `docs/process.md` - how work moves from a GitHub issue to merged code
 - `docs/task-template.md` - the format every groomed issue follows
 - `docs/team/` - one file per agent role: PM, engineer, QA, on-call engineer
+- `docs/operations.md` - the owner's runbook: deploy, promotion, telemetry and on-call setup
 - `openapi.yaml` - the API contract
 
 Layout
@@ -28,7 +29,7 @@ An npm workspaces monorepo:
   the GitHub runner and calls `deploy.sh` over SSM, then waits for
   `/v1/health` to report the SHA. Agents never deploy and never
   run `aws`; they check these files offline with `docker compose config`
-  and `bash -n`. The owner's steps are in the README's "Deploy to AWS"
+  and `bash -n`. The owner's steps are in `docs/operations.md`, "Deploy to AWS"
 - `.github/workflows/deploy.yml` (`Deploy`) - on every push to `main`,
   builds one arm64 image tagged with the commit SHA, pushes it to GHCR,
   and deploys it to dev; `.github/workflows/promote.yml` (`Promote to
@@ -108,7 +109,7 @@ read `.env`; a value set in the shell wins, for example
   `DATABASE_URL`, takes no arguments (any argument exits `2`), and prints
   only the new id, never the typed values. It works under
   `APP_ENV=production` and is how the first production account is made,
-  inside the production container (README "Create the first production
+  inside the production container (`docs/operations.md`, "Create the first production
   staff account")
 - `npm test` - Vitest once (no watch) in every workspace except e2e. Needs
   `docker compose up -d db`; backend tests migrate and use
@@ -140,7 +141,7 @@ read `.env`; a value set in the shell wins, for example
 - `observability/push.sh` - owner only. With `GRAFANA_URL`
   (`https://<stack>.grafana.net`, no trailing `/`) and `GRAFANA_TOKEN` in
   the environment, it creates or updates the dashboard and the alert rule
-  in the owner's Grafana Cloud stack (README "Telemetry and alerting");
+  in the owner's Grafana Cloud stack (`docs/operations.md`, "Telemetry and alerting");
   exit `0` done, `1` a lookup or request failed, `2` a missing or invalid
   setting or argument. `observability/push.sh --dry-run` needs only
   `GRAFANA_URL`, sends nothing, and prints each request it would make.
@@ -150,7 +151,7 @@ read `.env`; a value set in the shell wins, for example
   `GRAFANA_TOKEN` in the environment, polls Grafana every 60 seconds for
   firing "Clients cannot confirm" alerts and starts
   `claude -p --agent on-call-engineer` once per new incident, which opens
-  an `oncall-*` pull request and an incident issue (README "On-call
+  an `oncall-*` pull request and an incident issue (`docs/operations.md`, "On-call
   agent"). `--once` polls once, `--base <branch>` (default `main`) is the
   branch the agent works from and targets, `--alert-file <file>` reads a
   saved response instead of Grafana (implies `--once`), and `--dry-run`

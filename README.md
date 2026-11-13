@@ -2,417 +2,203 @@
 
 [![CI](https://github.com/rasc88/appointment-confirmation/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rasc88/appointment-confirmation/actions/workflows/ci.yml)
 
-Small service businesses lose income when clients miss appointments without
-warning. Appointment Confirmation lets staff send each client a private link
-to confirm or cancel, and shows on one dashboard which appointments are
+## Problem and what the app does
+
+Small service businesses (salons, physiotherapists, tutors, repair shops)
+lose income when clients miss appointments without warning: the slot
+stays empty and the staff member who kept it free earns nothing.
+Appointment Confirmation lets staff send each client a private link to
+confirm or cancel, and shows on one dashboard which appointments are
 confirmed, cancelled, or at risk of becoming a no-show.
 
 - **Staff** sign in, record appointments, copy each client's confirmation
-  link, and mark appointments as attended or no-show afterwards.
+  link (or a ready-made message) to send through the messaging app they
+  already use, confirm or cancel for a client, and mark appointments as
+  attended or no-show afterwards. They also add staff accounts and edit
+  the business settings.
 - **Clients** open the link on their phone and confirm or cancel with one
   tap, without an account.
 
-The full product and technical specification is in [docs/spec.md](docs/spec.md).
+Expected behaviour:
 
-## How this project is built
+- An appointment is `pending`, `confirmed`, `cancelled`, `attended`, or
+  `no_show` (no-show). Confirm and cancel happen before the start time;
+  attended and no-show are marked after it
+  ([spec section 7](docs/spec.md#7-appointment-state-machine)).
+- A `pending` or `confirmed` appointment that has not started is **at
+  risk** with one or both reasons
+  ([spec section 6.5](docs/spec.md#65-at-risk-rules)):
+  - "No reply yet": still `pending` and starting within
+    `noReplyWindowHours` (default 24)
+  - "Missed N before": the client has at least `noShowThreshold`
+    (default 1) no-shows in the last `noShowLookbackDays` (default 180)
+- A cancellation made less than `lateCancellationHours` (default 12)
+  before the start is flagged **Late cancellation**, so staff know the
+  slot may still be refillable. Every threshold is a business setting
+  that staff change on the Settings page.
+- After the start time, the link no longer accepts confirm or cancel.
+- Regenerating a link makes the old link return 404.
+- The dashboard refreshes every 30 seconds without a page reload.
 
-Work is done by a team of AI agents following a written process, with one
-person (the repository owner) approving production releases:
+The rest is in the full product and technical specification,
+[docs/spec.md](docs/spec.md), including its
+[MVP acceptance criteria](docs/spec.md#16-mvp-acceptance-criteria).
 
-- [AGENTS.md](AGENTS.md) - commands and rules for anyone working in the
-  repository (Claude Code reads it through `CLAUDE.md`)
-- [docs/process.md](docs/process.md) - how a GitHub issue moves from filed
-  to merged: PM grooms, engineer implements and opens a pull request, QA
-  posts PASS or FAIL, the orchestrator merges
-- [docs/team/](docs/team/) - the PM, engineer, QA, and on-call engineer
-  roles, also defined as Claude Code subagents in
-  [.claude/agents/](.claude/agents/)
-- [docs/decisions.md](docs/decisions.md) - the calls already made, with
-  reasons
-- [docs/task-template.md](docs/task-template.md) - the format of a groomed
-  issue
-- [GitHub Issues](https://github.com/rasc88/appointment-confirmation/issues)
-  - the public task tracker
+## Live demo
 
-> Status: specification phase. Code, setup, and deployment instructions will
-> follow.
+- Dev: Not deployed yet - the repository owner adds this address after the first deploy (#64).
+- Production: Not deployed yet - the repository owner adds this address after the first deploy (#64).
 
-## Deploy to AWS
+Demo logins, **dev only**: `alex@demo.test` and `sam@demo.test`, password
+`demo1234`. Production has no demo data and no demo login.
 
-For the repository owner, with their own AWS credentials. Agents never
-deploy. `infra/cloudformation.yaml` creates one `t4g.small` in `us-east-1`
-that runs dev and production as separate Docker Compose projects, each
-behind its own CloudFront address (spec section 10.4, decision 37). Every
-command runs from the repository root.
+What you cannot guess:
 
-> **There are no backups.** Both databases live only on the instance's
-> disk. Deleting the stack, replacing the instance, or losing it for any
-> other reason loses all data, dev and production.
+- Dev is a shared public demo: other reviewers may have changed the data.
+  Type made-up names and phone numbers, never real ones.
+- All times are in the business time zone shown on the dashboard
+  (`Europe/Madrid` in the demo), not your own.
+- The demo appointments are placed around the moment the database was
+  seeded. If "today" is empty, pick an earlier date on the dashboard or
+  create a new appointment.
+- To see the client side: create or open an appointment, press Copy link,
+  and open the link in a private window (no account needed).
 
-### Create the stack
+## Run locally
 
-Look up the current Amazon Linux 2023 arm64 AMI and keep the id; every
-later update passes the same one.
-
-```sh
-AMI_ID=$(aws ssm get-parameter --region us-east-1 \
-  --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 \
-  --query Parameter.Value --output text)
-echo "$AMI_ID"
-```
-
-Check whether the account already has the GitHub OIDC provider:
+Prerequisite: Docker with Compose.
 
 ```sh
-aws iam list-open-id-connect-providers --region us-east-1
+docker compose up --build
 ```
 
-Optionally confirm the CloudFront prefix list id the template defaults to
-(`pl-3b927c52`):
+Then open `http://localhost:8080` and sign in with the same demo logins.
+The command starts Postgres and the app, applies the database migrations,
+and seeds the demo data when the database is empty. `docker compose down`
+keeps the data.
+
+For the development setup (`npm run dev` with reload), see
+[AGENTS.md](AGENTS.md).
+
+## Tests
+
+With Node 24 (`nvm use`) and `npm install`:
 
 ```sh
-aws ec2 describe-managed-prefix-lists --region us-east-1 \
-  --filters Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing \
-  --query 'PrefixLists[0].PrefixListId' --output text
+docker compose up -d db
+npm test
 ```
 
-Create the stack. Add
-`ExistingGitHubOidcProviderArn=<arn>` to `--parameter-overrides` only if
-the list above shows `token.actions.githubusercontent.com`; otherwise the
-stack creates the provider.
+`npm test` runs the Vitest unit and integration tests: the backend
+against a real Postgres database, `appointments_test`, and the frontend
+with React Testing Library.
 
 ```sh
-aws cloudformation deploy --region us-east-1 \
-  --stack-name appointment-confirmation \
-  --template-file infra/cloudformation.yaml \
-  --capabilities CAPABILITY_IAM \
-  --parameter-overrides AmiId="$AMI_ID"
+npx playwright install --with-deps chromium   # once
+npm run test:e2e
 ```
 
-The CloudFront distributions take several minutes.
+`npm run test:e2e` runs Playwright against a throwaway Docker Compose
+stack.
 
-### Outputs
+CI runs all of them on every pull request
+([.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
-```sh
-aws cloudformation describe-stacks --region us-east-1 \
-  --stack-name appointment-confirmation \
-  --query 'Stacks[0].Outputs' --output table
-```
+## For reviewers: rubric map
 
-- `DevUrl` - the public dev demo (seeded with the demo logins on its first
-  deploy). The stack also stores it in Parameter Store as
-  `/appointment-confirmation/dev/public-base-url`
-- `ProdUrl` - production, stored as
-  `/appointment-confirmation/prod/public-base-url`
-- `InstanceId` and `DeployRoleArn` - the deploy workflows need both
-  ("Continuous deployment" below)
+The course's [project rubric](https://github.com/DataTalksClub/ai-dev-tools-zoomcamp/tree/main/project)
+has 12 criteria. Where to find the evidence for each:
 
-### Continuous deployment
+| Criterion | Where to look |
+|---|---|
+| Problem Description | [Problem and what the app does](#problem-and-what-the-app-does) above |
+| Product Specification | [docs/spec.md](docs/spec.md), [openapi.yaml](openapi.yaml), the public [issue tracker](https://github.com/rasc88/appointment-confirmation/issues), a groomed issue with acceptance criteria ([#21](https://github.com/rasc88/appointment-confirmation/issues/21)), and the template every groomed issue follows, [docs/task-template.md](docs/task-template.md) |
+| Agent Team Specification | [docs/process.md](docs/process.md), [docs/team/](docs/team/), [.claude/agents/](.claude/agents/), and [How the agents built it](#how-the-agents-built-it) below |
+| Context Management | [AGENTS.md](AGENTS.md) (and [CLAUDE.md](CLAUDE.md), which is `@AGENTS.md`), [docs/decisions.md](docs/decisions.md), [docs/process.md](docs/process.md), [docs/team/](docs/team/) |
+| Application | `docker compose up --build` ([Run locally](#run-locally)), [frontend/](frontend/), [backend/](backend/), [backend/prisma/schema.prisma](backend/prisma/schema.prisma) |
+| Testing | `npm test` and `npm run test:e2e` ([Tests](#tests)), [e2e/tests/](e2e/tests/); examples: backend integration [backend/src/public-routes.test.ts](backend/src/public-routes.test.ts), unit [backend/src/at-risk.test.ts](backend/src/at-risk.test.ts), frontend [frontend/src/pages/DashboardPage.test.tsx](frontend/src/pages/DashboardPage.test.tsx) |
+| Containerization | [Dockerfile](Dockerfile), [docker-compose.yaml](docker-compose.yaml) |
+| Deployment | [infra/cloudformation.yaml](infra/cloudformation.yaml), [infra/deploy.sh](infra/deploy.sh), [infra/remote-deploy.sh](infra/remote-deploy.sh), [spec section 10.4](docs/spec.md#104-deployment-layout-and-cost), [Live demo](#live-demo), [docs/operations.md](docs/operations.md). Not deployed yet: the live URLs come with [#64](https://github.com/rasc88/appointment-confirmation/issues/64) |
+| CI/CD | [ci.yml](.github/workflows/ci.yml) (three required checks on every pull request; [runs](https://github.com/rasc88/appointment-confirmation/actions/workflows/ci.yml)), [deploy.yml](.github/workflows/deploy.yml) (every merge to `main` deploys to dev; [runs](https://github.com/rasc88/appointment-confirmation/actions/workflows/deploy.yml)), [promote.yml](.github/workflows/promote.yml) (manual, owner-approved promotion of the image dev runs; [runs](https://github.com/rasc88/appointment-confirmation/actions/workflows/promote.yml)), and the rollback line under [Operations](#operations) |
+| Observability | [spec section 15](docs/spec.md#15-observability-and-alerting), [backend/src/telemetry.ts](backend/src/telemetry.ts), [backend/src/request-telemetry.ts](backend/src/request-telemetry.ts), [backend/src/metrics.ts](backend/src/metrics.ts), [backend/src/logger.ts](backend/src/logger.ts), [observability/dashboard.json](observability/dashboard.json), and the test that proves no client data is exported: [backend/src/telemetry.test.ts](backend/src/telemetry.test.ts), "records no token, client name, phone, search term or /c/ path". Not there yet: Grafana UI evidence, which comes with [#64](https://github.com/rasc88/appointment-confirmation/issues/64) |
+| Alerting on User Impact | [spec section 15.2](docs/spec.md#152-alert): "Clients cannot confirm" fires on failed client confirms or cancels, 1 or more in production or 3 or more in dev, within 5 minutes; [observability/alert-rule.json](observability/alert-rule.json) |
+| On-Call Agent | [spec section 15.3](docs/spec.md#153-on-call-agent), [docs/team/on-call-engineer.md](docs/team/on-call-engineer.md), [.claude/agents/on-call-engineer.md](.claude/agents/on-call-engineer.md), [oncall/oncall.sh](oncall/oncall.sh), [#22](https://github.com/rasc88/appointment-confirmation/issues/22). The agent wakes on a firing alert and answers with a fix pull request with a regression test and an incident issue; the fix merges only through QA and CI, and reaches production only through the owner's promotion (decision 41). Not there yet: the recorded demo run, [#62](https://github.com/rasc88/appointment-confirmation/issues/62) |
 
-Two workflows deploy the app (decision 38). Both reach the instance only
-through the stack's deploy role, over OIDC and SSM; there are no AWS keys
-and no repository secrets.
+## How the agents built it
 
-- `Deploy` (`.github/workflows/deploy.yml`) runs on every push to `main`.
-  It builds one `linux/arm64` image on GitHub's `ubuntu-24.04-arm` runner,
-  tagged with the full commit SHA (also its `APP_VERSION`), pushes it to
-  `ghcr.io/rasc88/appointment-confirmation:<sha>` unless that tag already
-  exists, then runs `infra/remote-deploy.sh dev <sha>`. That script checks
-  out the commit on the instance and runs `infra/deploy.sh` over SSM, then
-  waits until `<DevUrl>/v1/health` reports the SHA. Runs queue in push
-  order and a deploy in progress is never cancelled
-- `Promote to production` (`.github/workflows/promote.yml`) runs only when
-  you start it. It reads the SHA dev runs now from `<DevUrl>/v1/health`
-  and deploys that exact image to production the same way. It builds
-  nothing and takes no input
+Every change was made by AI agents (Claude Code) following a written
+process, with one person, the repository owner, answering questions and
+releasing to production.
 
-#### Setup, once after the stack exists
+| Role | Does | Instructions | Agent definition |
+|---|---|---|---|
+| Orchestrator | Picks the next issue, launches the other roles, squash-merges | [docs/process.md](docs/process.md) | The main Claude Code session |
+| PM | Grooms an issue into the task template before anyone implements it | [docs/team/pm.md](docs/team/pm.md) | [.claude/agents/pm.md](.claude/agents/pm.md) |
+| Engineer | Implements one groomed issue and opens its pull request | [docs/team/software-engineer.md](docs/team/software-engineer.md) | [.claude/agents/software-engineer.md](.claude/agents/software-engineer.md) |
+| QA | Checks the pull request against the acceptance criteria | [docs/team/qa-engineer.md](docs/team/qa-engineer.md) | [.claude/agents/qa-engineer.md](.claude/agents/qa-engineer.md) |
+| On-call engineer | Investigates a firing alert and proposes a fix | [docs/team/on-call-engineer.md](docs/team/on-call-engineer.md) | [.claude/agents/on-call-engineer.md](.claude/agents/on-call-engineer.md) |
+| Repository owner (a person) | Answers open questions, promotes releases to production | [docs/process.md](docs/process.md), [docs/operations.md](docs/operations.md) | - |
 
-1. Read the stack outputs (above).
-2. Set the repository variables. They are plain variables, not secrets;
-   `DEV_URL` and `PROD_URL` have no trailing slash:
+The PM grooms each issue, the engineer opens a pull request, CI runs, QA
+posts PASS or FAIL, and the orchestrator squash-merges on PASS with CI
+green; only the owner promotes to production
+([docs/process.md](docs/process.md) has the diagram). The PM and QA
+agents have no Edit or Write tools, so they cannot change code. Each step
+leaves a comment on the issue headed `## PM: groomed`,
+`## Engineer: ready for QA`, and `## QA: PASS` or `## QA: FAIL`.
 
-   ```sh
-   gh variable set AWS_DEPLOY_ROLE_ARN --body '<DeployRoleArn>'
-   gh variable set AWS_INSTANCE_ID --body '<InstanceId>'
-   gh variable set DEV_URL --body '<DevUrl>'
-   gh variable set PROD_URL --body '<ProdUrl>'
-   ```
+Worked examples:
 
-   Or Settings → Secrets and variables → Actions → Variables → New
-   repository variable, once per name. Until all are set, `Deploy` fails
-   at `deploy-dev` with a message naming what is missing.
-3. Create the `production` environment: Settings → Environments → New
-   environment, name `production`, Configure environment. Under
-   "Deployment protection rules" tick "Required reviewers", add yourself,
-   and Save protection rules. Under "Deployment branches and tags" choose
-   "Selected branches and tags", Add deployment branch or tag rule, enter
-   `main`, and Add rule. The `dev` environment is created by the first
-   `Deploy` run and needs no rules.
-4. After the first `Deploy` run has pushed the image, make the package
-   public so the instance can pull it without logging in: your profile →
-   Packages → `appointment-confirmation` → Package settings → Change
-   visibility → Public. That first run's `deploy-dev` job fails at the
-   pull, before anything on the instance changes, because the package
-   starts private. Re-run that job (Actions → the run → Re-run failed
-   jobs) once the package is public.
+- [#7](https://github.com/rasc88/appointment-confirmation/issues/7), QA
+  FAIL then PASS:
+  [PM groomed](https://github.com/rasc88/appointment-confirmation/issues/7#issuecomment-6783616587),
+  [the owner answered the PM's questions](https://github.com/rasc88/appointment-confirmation/issues/7#issuecomment-6783721453),
+  [QA FAIL](https://github.com/rasc88/appointment-confirmation/issues/7#issuecomment-6783999269)
+  because the dashboard's counts scrolled out of view instead of staying
+  sticky with the filters as the criterion required,
+  [QA PASS](https://github.com/rasc88/appointment-confirmation/issues/7#issuecomment-6784533019)
+  after the fix, merged as
+  [PR #33](https://github.com/rasc88/appointment-confirmation/pull/33).
+- [#21](https://github.com/rasc88/appointment-confirmation/issues/21), QA
+  tested against a real Grafana:
+  [PM groomed](https://github.com/rasc88/appointment-confirmation/issues/21#issuecomment-6833360319),
+  [the owner answered](https://github.com/rasc88/appointment-confirmation/issues/21#issuecomment-6835326638),
+  [QA FAIL](https://github.com/rasc88/appointment-confirmation/issues/21#issuecomment-6836080990):
+  running `push.sh` against a throwaway Grafana OSS container found two
+  bugs the stubbed check could not (the contact-point lookup and a
+  folder/dashboard uid clash),
+  [the PM re-groomed the criteria in the same round](https://github.com/rasc88/appointment-confirmation/issues/21#issuecomment-6836099986),
+  [QA PASS](https://github.com/rasc88/appointment-confirmation/issues/21#issuecomment-6836396402),
+  merged as [PR #61](https://github.com/rasc88/appointment-confirmation/pull/61).
+- [#22](https://github.com/rasc88/appointment-confirmation/issues/22),
+  owner decisions and a follow-up:
+  [PM groomed](https://github.com/rasc88/appointment-confirmation/issues/22#issuecomment-6836478627),
+  [follow-up #62 filed](https://github.com/rasc88/appointment-confirmation/issues/22#issuecomment-6836487831),
+  [the owner answered](https://github.com/rasc88/appointment-confirmation/issues/22#issuecomment-6862113685),
+  [QA FAIL](https://github.com/rasc88/appointment-confirmation/issues/22#issuecomment-6862978645):
+  the agent's push allowlist could delete remote branches, and a
+  malformed state file relaunched agents,
+  [QA PASS](https://github.com/rasc88/appointment-confirmation/issues/22#issuecomment-6863318329),
+  merged as [PR #63](https://github.com/rasc88/appointment-confirmation/pull/63).
 
-#### Promote to production
+## Architecture
 
-Actions → "Promote to production" → Run workflow, branch `main`, or:
+| Layer | Choice |
+|---|---|
+| Frontend | Vite, React, TypeScript |
+| Backend | Node.js 24, Express 5, TypeScript, Prisma, PostgreSQL 17 |
+| Container | One image serving the API under `/v1` and the built frontend |
+| Hosting | One AWS EC2 instance running dev and production, each behind CloudFront |
+| CI/CD | GitHub Actions |
+| Telemetry | OpenTelemetry to Grafana Cloud |
 
-```sh
-gh workflow run promote.yml --ref main
-```
+Details in [spec section 10](docs/spec.md#10-technical-architecture).
 
-It promotes whatever dev runs at that moment, so check dev first. The run
-waits for your approval (Review deployments → Approve and deploy) before
-it gets AWS credentials. A dev that runs a `manual` build (the optional
-first bring-up), is unhealthy, or does not answer cannot be promoted: the
-run stops before any AWS call.
+## Operations
 
-#### Create the first production staff account
+Deploying, promoting to production, telemetry and alerting setup, and the
+on-call poller are the repository owner's steps, in
+[docs/operations.md](docs/operations.md).
 
-1. Do this once, after a promotion whose image contains this command.
-2. Open a Session Manager shell (EC2 console → Connect → Session Manager,
-   or `aws ssm start-session --region us-east-1 --target <InstanceId>`).
-   `aws ssm send-command` / Run Command does not work, because it gives
-   no TTY, so the prompts cannot be answered.
-3. Run exactly:
-
-   ```sh
-   sudo docker compose --project-name ac-prod \
-     --env-file /opt/appointment-confirmation/prod/.env \
-     -f /opt/appointment-confirmation/repo/infra/compose.yaml \
-     exec app npm run staff:create
-   ```
-
-   `sudo` is needed because the env file is root-only and Docker needs
-   root. Production uses `compose.yaml` alone (no `compose.dev.yaml`), the
-   same as `deploy.sh`. `exec` allocates a TTY by default, so do not add
-   `-T`.
-4. Answer the prompts: `Name`, `Email`, `Password`. The password is not
-   shown while it is typed.
-5. Sign in at `<ProdUrl>`, then add further accounts from the Staff page.
-6. Production never has demo data, and `npm run db:seed` refuses there.
-
-#### Roll back
-
-Revert the bad commit on `main` through a pull request. `Deploy` builds
-the revert and puts it on dev; once dev is good, promote it.
-
-### Verify
-
-Open a shell on the instance with Session Manager (the EC2 console's
-Connect button, or `aws ssm start-session --region us-east-1 --target
-<InstanceId>` with the Session Manager plugin). There is no SSH. Then:
-
-```sh
-sudo docker compose version
-ls /opt/appointment-confirmation
-```
-
-The first shows the pinned Compose plugin; the second lists `dev`, `prod`,
-and `repo`. From your own machine, both CloudFront addresses answer;
-`502` or `504` is expected until the first deploy:
-
-```sh
-curl -s -o /dev/null -w '%{http_code}\n' <DevUrl>/v1/health
-curl -s -o /dev/null -w '%{http_code}\n' <ProdUrl>/v1/health
-```
-
-### Optional first bring-up
-
-This also proves the image runs on arm64. On the instance, build the image
-from the checkout and deploy it to dev:
-
-```sh
-sudo docker build --build-arg APP_VERSION=manual \
-  -t appointment-confirmation:manual /opt/appointment-confirmation/repo
-sudo /opt/appointment-confirmation/repo/infra/deploy.sh dev appointment-confirmation:manual
-```
-
-From your own machine, `curl -s <DevUrl>/v1/health` then shows
-`"status":"ok","environment":"dev"`.
-
-`infra/deploy.sh <dev|prod> <image-ref>` generates each environment's
-session secret and database password on its first run and keeps them in
-`/opt/appointment-confirmation/<env>/secrets.env`; they never leave the
-instance. #19 calls it over SSM for every deploy.
-
-### Telemetry and alerting
-
-The app sends traces, metrics, and logs to Grafana Cloud (decision 36).
-`observability/` holds the dashboard, the alert rule "Clients cannot
-confirm", and `push.sh`, which creates or updates both in your stack
-(decision 40). Only you run it; agents never hold a Grafana token.
-
-1. Create a Grafana Cloud account and a free stack (a US East region is
-   closest to the instance). Note the stack URL,
-   `https://<stack>.grafana.net`.
-2. In the stack, Connections → "OpenTelemetry (OTLP)": create a token with
-   the metrics, logs, and traces write scopes. Copy the OTLP endpoint
-   (`https://otlp-gateway-<region>.grafana.net/otlp`) and the
-   `OTEL_EXPORTER_OTLP_HEADERS` value (`Authorization=Basic%20<base64>`).
-3. Put them in SSM for dev, set both or neither:
-
-   ```sh
-   aws ssm put-parameter --region us-east-1 --type String \
-     --name /appointment-confirmation/dev/otlp-endpoint --value '<endpoint>'
-   aws ssm put-parameter --region us-east-1 --type SecureString \
-     --name /appointment-confirmation/dev/otlp-headers --value '<headers>'
-   ```
-
-   Repeat with `prod` in the names for production. Add `--overwrite` to
-   change an existing value. They take effect on the next deploy of that
-   environment: a merge to `main` for dev, "Promote to production" for
-   production.
-4. Check the names: after a few requests on dev, run these in Explore.
-   Both return series, the second at 0 until something fails:
-
-   ```
-   http_server_request_duration_seconds_count{environment="dev"}
-   appointment_response_failures_total{environment="dev"}
-   ```
-
-   If Explore shows other names (for example dotted ones), the dashboard
-   and alert queries need a follow-up issue.
-5. Administration → Users and access → Service accounts: create
-   `appointment-confirmation-push` with the role Admin, add a token, and
-   keep it locally. You can delete the token after pushing. Narrower
-   option: role Editor plus the Cloud RBAC role "Alerting provisioning
-   writer".
-6. Alerting → Contact points → `grafana-default-email`: check that the
-   address is yours (replace a placeholder such as `<example@email.com>`),
-   and press Test to receive an email. The alert notifies this contact
-   point directly; `push.sh` neither creates nor changes contact points or
-   the notification policies.
-7. From the repository root, push the dashboard and the alert rule. Run it
-   again after any change to the files in `observability/`:
-
-   ```sh
-   GRAFANA_URL=https://<stack>.grafana.net GRAFANA_TOKEN=<token> observability/push.sh
-   ```
-
-   It needs `bash`, `curl`, and `jq`, prints one line per step and the
-   dashboard URL, and stops with the HTTP status and Grafana's answer on
-   any error. `observability/push.sh --dry-run` (with `GRAFANA_URL` only)
-   shows what it would send without sending anything.
-8. Check: the dashboard "Appointment confirmation" opens with
-   `environment=dev` selected, and Alerting → Alert rules shows
-   "Clients cannot confirm" as Normal.
-9. Optional fire drill, on dev only. The alert fires on dev at 3 or more
-   failed confirms or cancels in 5 minutes (production: 1 or more). From a
-   Session Manager shell, stop dev's database:
-
-   ```sh
-   sudo docker compose --project-name ac-dev \
-     --env-file /opt/appointment-confirmation/dev/.env \
-     -f /opt/appointment-confirmation/repo/infra/compose.yaml \
-     -f /opt/appointment-confirmation/repo/infra/compose.dev.yaml \
-     stop db
-   ```
-
-   Press confirm on a dev link at least 3 times, wait about 4 minutes for
-   the email, then start the database again with the same command ending
-   in `start db`.
-
-### Update the stack
-
-Pass the same `AmiId` the stack already has:
-
-```sh
-AMI_ID=$(aws cloudformation describe-stacks --region us-east-1 \
-  --stack-name appointment-confirmation \
-  --query "Stacks[0].Parameters[?ParameterKey=='AmiId'].ParameterValue" \
-  --output text)
-aws cloudformation deploy --region us-east-1 \
-  --stack-name appointment-confirmation \
-  --template-file infra/cloudformation.yaml \
-  --capabilities CAPABILITY_IAM \
-  --parameter-overrides AmiId="$AMI_ID"
-```
-
-> **Warning:** a different `AmiId` replaces the instance, which deletes
-> both databases.
-
-### Tear down
-
-Deleting the stack deletes the instance, both databases, the
-distributions, and everything else it created, and stops all AWS charges.
-The `otlp-*` parameters were created by hand, so delete them by hand:
-
-```sh
-aws cloudformation delete-stack --region us-east-1 --stack-name appointment-confirmation
-aws cloudformation wait stack-delete-complete --region us-east-1 --stack-name appointment-confirmation
-aws ssm delete-parameters --region us-east-1 --names \
-  /appointment-confirmation/dev/otlp-endpoint /appointment-confirmation/dev/otlp-headers \
-  /appointment-confirmation/prod/otlp-endpoint /appointment-confirmation/prod/otlp-headers
-```
-
-## On-call agent
-
-`oncall/oncall.sh` is the trigger for the on-call engineer agent (spec
-section 15.3, decision 41). It runs on your machine, asks Grafana every 60
-seconds for firing "Clients cannot confirm" alerts, and for each new
-incident starts `claude -p --agent on-call-engineer` with the alert. The
-agent reads the code at the alert's `version`, pushes an `oncall-*`
-branch, and opens a pull request and an `mvp` incident issue. It cannot
-merge, deploy, run a workflow, or reach Grafana.
-
-Prerequisites:
-
-- `claude` logged in with your Claude subscription (run `claude` once), and
-  `gh` logged in (`gh auth status`): the agent's pull requests are opened
-  with your login, so `CI` runs on them
-- `jq`, `curl`, and coreutils `timeout`
-- `docker compose up -d db`, so the agent can run `npm test`
-- a clean checkout of this repository: the poller waits while
-  `git status --porcelain` shows anything. The agent switches the checkout
-  to its `oncall-*` branch and leaves it there
-
-Create the token: in the stack, Administration → Users and access →
-Service accounts, create `appointment-confirmation-oncall` with the role
-Viewer, add a token, and export it with the stack URL in the shell that
-runs the poller (never in a file in the repository):
-
-```sh
-export GRAFANA_URL=https://<stack>.grafana.net
-export GRAFANA_TOKEN=<viewer token>
-```
-
-Run it from the repository root:
-
-```sh
-oncall/oncall.sh                       # poll every 60 seconds until Ctrl-C
-oncall/oncall.sh --once                # one poll, then exit
-oncall/oncall.sh --base <branch>       # the agent works from and targets <branch> instead of main
-```
-
-Try it offline, with no token and without starting `claude`. The
-example's `version` must be a commit of this repository; to use the
-current one:
-
-```sh
-jq --arg v "$(git rev-parse HEAD)" '.data.alerts[].labels.version = $v' \
-  oncall/example-alerts.json > /tmp/alerts.json
-oncall/oncall.sh --dry-run --alert-file /tmp/alerts.json
-```
-
-`--dry-run` prints the exact `claude` command and prompt for each new
-incident. Without it, `--alert-file` starts the agent for real.
-
-State and logs, both git-ignored:
-
-- `oncall/state.json` lists the handled incident keys,
-  `<alertname>|<environment>|<version>|<activeAt>`. An alert that keeps
-  firing starts one agent; one that resolves and fires again starts a new
-  one. To let an incident run again, remove its key from the file. If the
-  file is not a JSON array of strings after an edit, every poll fails with
-  one line until it is fixed
-- `oncall/logs/<yyyymmdd-hhmmss>-<environment>.jsonl` holds each session's
-  full output; the poller prints its path and the agent's final report
-
-What to do with the result: review the incident issue the agent opened.
-Its pull request goes through QA and CI like any other change, and reaches
-production only when you promote it.
+Rollback: revert the bad commit on `main` through a pull request; `Deploy`
+puts the revert on dev; the owner promotes it.

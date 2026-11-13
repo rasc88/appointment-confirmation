@@ -99,7 +99,7 @@ compose() {
 }
 
 # `missing` pulls every image not on the host yet, so a tag built on the
-# instance (README) deploys too; a tag that is neither local nor in the
+# instance (docs/operations.md) deploys too; a tag that is neither local nor in the
 # registry fails here, before anything running is touched.
 compose pull --policy missing
 compose up -d

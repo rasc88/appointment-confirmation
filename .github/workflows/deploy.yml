@@ -63,7 +63,7 @@ jobs:
           is_missing=false
           for name in AWS_DEPLOY_ROLE_ARN AWS_INSTANCE_ID DEV_URL; do
             if [[ -z "${!name}" ]]; then
-              echo "::error::Repository variable $name is not set. See README.md, Deploy to AWS > Continuous deployment."
+              echo "::error::Repository variable $name is not set. See docs/operations.md, Deploy to AWS > Continuous deployment."
               is_missing=true
             fi
           done
