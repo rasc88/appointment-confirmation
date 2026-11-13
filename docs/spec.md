@@ -455,7 +455,7 @@ The key user journey is **client opens link → confirms or cancels**. It is ins
 **Clients cannot confirm:** fires when `appointment_response_failures_total` increases by 1 or more within 5 minutes in production, or by 3 or more in dev, counted per environment and version, sustained for 2 minutes and evaluated every minute. No data is OK. Notifications go to the Grafana Cloud stack's `grafana-default-email` contact point. Each alert carries `service`, `environment`, `version`, and `severity` labels and a link to the dashboard filtered to that environment and version. The dashboard and the rule live in `observability/` (decision 40).
 
 ### 15.3 On-Call Agent
-When the alert fires, a coding agent receives the alert, investigates with logs and traces, writes a fix with a test on a branch, and opens a pull request for human review. It never deploys to production.
+The trigger is the repository owner's local poller, `oncall/oncall.sh`, which asks Grafana Cloud every 60 seconds for firing alerts of this service (decision 41). For each new incident it starts the on-call engineer agent headless with the alert JSON. The agent investigates the code at the alert's `version`, writes a fix with a test on an `oncall-*` branch, and opens a pull request and an `mvp` incident issue. The pull request goes through the normal QA and CI. The agent has no Grafana access, never merges, never deploys, never runs a workflow, and never touches production. Alerts are handled only while the owner's machine runs the poller.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: on-call-engineer
-description: On-Call Engineer. Investigates a firing Grafana alert, finds the cause, and opens a fix pull request with a regression test. Never deploys.
+description: On-Call Engineer. Started headless by oncall/oncall.sh for a firing Grafana alert; investigates it, finds the cause, and opens a fix pull request with a regression test. Never deploys.
 ---
 
 Follow `docs/team/on-call-engineer.md`. Read `AGENTS.md`,
