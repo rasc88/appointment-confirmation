@@ -1,0 +1,47 @@
+{
+  "status": "success",
+  "data": {
+    "alerts": [
+      {
+        "labels": {
+          "alertname": "Clients cannot confirm",
+          "environment": "dev",
+          "grafana_folder": "appointment-confirmation",
+          "service": "appointment-confirmation",
+          "severity": "critical",
+          "version": "9d080498dcfcb6b2b29cb7176e29ac37e6070ebf"
+        },
+        "annotations": {
+          "__dashboardUid__": "appointment-confirmation",
+          "__panelId__": "2",
+          "dashboard_url": "https://<stack>.grafana.net/d/appointment-confirmation/appointment-confirmation?var-environment=dev&var-version=9d080498dcfcb6b2b29cb7176e29ac37e6070ebf",
+          "description": "Thresholds: 1 or more in 5 minutes on production, 3 or more on dev, per environment and version, sustained 2 minutes.",
+          "summary": "4 confirm/cancel requests failed with a 5xx in 5 minutes on dev (version 9d080498dcfcb6b2b29cb7176e29ac37e6070ebf)"
+        },
+        "state": "Alerting",
+        "activeAt": "2026-11-13T10:02:00Z",
+        "value": "4e+00"
+      },
+      {
+        "labels": {
+          "alertname": "Clients cannot confirm",
+          "environment": "production",
+          "grafana_folder": "appointment-confirmation",
+          "service": "appointment-confirmation",
+          "severity": "critical",
+          "version": "9d080498dcfcb6b2b29cb7176e29ac37e6070ebf"
+        },
+        "annotations": {
+          "__dashboardUid__": "appointment-confirmation",
+          "__panelId__": "2",
+          "dashboard_url": "https://<stack>.grafana.net/d/appointment-confirmation/appointment-confirmation?var-environment=production&var-version=9d080498dcfcb6b2b29cb7176e29ac37e6070ebf",
+          "description": "Thresholds: 1 or more in 5 minutes on production, 3 or more on dev, per environment and version, sustained 2 minutes.",
+          "summary": "1 confirm/cancel requests failed with a 5xx in 5 minutes on production (version 9d080498dcfcb6b2b29cb7176e29ac37e6070ebf)"
+        },
+        "state": "Pending",
+        "activeAt": "2026-11-13T10:05:00Z",
+        "value": "1e+00"
+      }
+    ]
+  }
+}
