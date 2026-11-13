@@ -100,7 +100,7 @@ export function createPublicRouter(now: () => Date) {
     const confirmed = isPending
       ? await updateIfStatus(
           { tokenHash: appointment.tokenHash, status: 'pending' },
-          { status: 'confirmed', confirmedBy: 'client', statusChangedAt: requestTime },
+          { status: 'confirmed', confirmedBy: 'client', statusChangedAt: requestTime, staffMemberId: appointment.staffMember.name },
         )
       : appointment;
     if (isPending) {
