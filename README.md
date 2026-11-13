@@ -407,7 +407,9 @@ State and logs, both git-ignored:
 - `oncall/state.json` lists the handled incident keys,
   `<alertname>|<environment>|<version>|<activeAt>`. An alert that keeps
   firing starts one agent; one that resolves and fires again starts a new
-  one. To let an incident run again, remove its key from the file
+  one. To let an incident run again, remove its key from the file. If the
+  file is not a JSON array of strings after an edit, every poll fails with
+  one line until it is fixed
 - `oncall/logs/<yyyymmdd-hhmmss>-<environment>.jsonl` holds each session's
   full output; the poller prints its path and the agent's final report
 

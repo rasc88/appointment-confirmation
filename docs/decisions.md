@@ -666,7 +666,7 @@ agent; anything else is recorded with a reason. Agents run one at a time,
 only on a clean working tree.
 
 The agent runs as
-`timeout 30m env -u GRAFANA_TOKEN claude -p --agent on-call-engineer
+`timeout -k 1m 30m env -u GRAFANA_TOKEN claude -p --agent on-call-engineer
 --setting-sources project --permission-mode dontAsk --max-turns 150
 --output-format stream-json --verbose`, with the prompt on stdin and the
 session saved to the git-ignored `oncall/logs/`:
@@ -681,10 +681,15 @@ session saved to the git-ignored `oncall/logs/`:
 - `--disallowedTools`: `gh pr merge`, `gh api`, `gh workflow`, `gh run`,
   `gh release`, `git push --force`/`-f`, `aws`, `curl`,
   `observability/push.sh`, `infra/deploy.sh`, `infra/remote-deploy.sh`,
-  `WebFetch`, `WebSearch`, and the pushes the `oncall-*` wildcard would
-  otherwise let through: force anywhere in the line, `+` refspecs,
-  `--delete`/`-d`, `--mirror`, `--all`, `--receive-pack`/`--exec`, and a
-  refspec onto `main` or the base branch
+  `WebFetch`, `WebSearch`, plus `Bash(git push -u origin oncall-* *)` and
+  `Bash(git push *:**)`. In a rule `*` matches any text, spaces included,
+  so the allowed push alone would also match extra refspecs and options
+  (another branch, a deletion, `--tags`). The two denies leave only
+  `git push -u origin oncall-<name>` with nothing after it and no colon.
+  The colon rule is written `*:**` because a rule ending in `:*` is the
+  literal-prefix form, in which every other `*` is literal
+- an `oncall/state.json` that is not a JSON array of strings fails the
+  poll and is left as it is, so a bad hand edit never relaunches an agent
 - the Grafana token reaches `curl` through a file descriptor and is removed
   from the agent's environment; the agent has no Grafana access
 
@@ -706,8 +711,11 @@ Why:
 Cost accepted: alerts are handled only while the owner's machine runs the
 poller. The agent works in the owner's checkout, which it leaves on its
 `oncall-*` branch. `npm test` runs repository code, so a determined agent
-could reach beyond the allowlist through a test file; the pull request,
-QA, and branch protection remain the gate. Permission rules match the
+could reach beyond the allowlist through a test file. It acts with the
+owner's `gh` login, an administrator, and `main` does not enforce its
+protection on administrators, so branch protection is not a gate against
+it. The gate is QA on the pull request and the owner, who reviews the
+incident issue and alone promotes to production. Permission rules match the
 command text, so a spelling outside the allowlist is denied even when it
 is harmless.
 
