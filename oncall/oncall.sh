@@ -98,22 +98,17 @@ allowedTools=(
   "Bash(gh issue create *)" "Bash(gh issue list *)" "Bash(gh issue view *)"
   "Bash(gh pr create *)" "Bash(gh pr list *)" "Bash(gh pr view *)" "Bash(gh search *)"
 )
-# The second group closes what the oncall-* wildcard would let through: force, delete, and refspecs onto other branches.
 disallowedTools=(
   "Bash(gh pr merge:*)" "Bash(gh api:*)" "Bash(gh workflow:*)" "Bash(gh run:*)" "Bash(gh release:*)"
   "Bash(git push --force:*)" "Bash(git push -f:*)" "Bash(aws:*)" "Bash(curl:*)"
   "Bash(observability/push.sh:*)" "Bash(infra/deploy.sh:*)" "Bash(infra/remote-deploy.sh:*)"
   WebFetch WebSearch
-  "Bash(git push * -f*)" "Bash(git push *--force*)" "Bash(git push *+*)" "Bash(git push * -d*)"
-  "Bash(git push *--delete*)" "Bash(git push *--mirror*)" "Bash(git push *--all*)"
-  "Bash(git push *--receive-pack*)" "Bash(git push *--exec*)"
-  "Bash(git push *:*main*)"
+  # In a rule, * also matches spaces and a trailing :* is the literal-prefix form, so these two leave only
+  # "git push -u origin oncall-<name>": nothing after the branch, and no colon refspec ("**" is "*" twice).
+  "Bash(git push -u origin oncall-* *)" "Bash(git push *:**)"
 )
-if [[ $base != main ]]; then
-  disallowedTools+=("Bash(git push *:*$base*)")
-fi
 claudeCommand=(
-  timeout "$agentTimeout" env -u GRAFANA_TOKEN
+  timeout -k 1m "$agentTimeout" env -u GRAFANA_TOKEN
   claude -p --agent on-call-engineer --setting-sources project --permission-mode dontAsk
   --max-turns "$maxTurns" --output-format stream-json --verbose
   --allowedTools "${allowedTools[@]}" --disallowedTools "${disallowedTools[@]}"
@@ -136,13 +131,17 @@ handled_keys() {
   fi
 }
 
+is_valid_state() {
+  handled_keys | jq -e 'type == "array" and all(.[]; type == "string")' >/dev/null 2>&1
+}
+
 is_handled() {
   handled_keys | jq -e --arg key "$1" 'any(.[]; . == $key)' >/dev/null
 }
 
 record() {
   local updated
-  updated=$(handled_keys | jq --arg key "$1" '. + [$key]')
+  updated=$(handled_keys | jq --arg key "$1" '. + [$key]') || return 1
   printf '%s\n' "$updated" >"$stateFile"
 }
 
@@ -150,7 +149,7 @@ record() {
 skip() {
   say "skipped $1: $2"
   if [[ $isDryRun == false ]]; then
-    record "$1"
+    record "$1" || return 1
   fi
 }
 
@@ -165,7 +164,7 @@ build_prompt() {
     "- Follow `docs/team/on-call-engineer.md`. The code that was running is `\($version)` (`git show \($version)`, `git log \($version)`).",
     "- First search issues and pull requests, open and closed, for the incident key (`gh issue list --state all --search`, `gh pr list --state all --search`, or `gh search`). If one exists, stop with a report that links it.",
     "- Branch `oncall-<short-description>` from the latest `origin/\($base)` (`git fetch origin`, then `git switch -c oncall-<short-description> origin/\($base)`), push it with `git push -u origin oncall-<short-description>`, and open the pull request against `\($base)` (`gh pr create --base \($base)`).",
-    "- Put the incident key in the incident issue and in the pull request description.",
+    "- Put the incident key in the incident issue and in the pull request description. Pass a multi-line body on stdin with `--body-file -` and a quoted heredoc (`<<'"'"'EOF'"'"'`), never with `$(...)` or a file in the checkout.",
     "- If the cause is already fixed on `\($base)` or is outside the code, open the issue and no pull request.",
     "- You have no Grafana access: the evidence is this alert, its dashboard link (for a person), and the code at `\($version)`. Never ask for a token.",
     "- Run the checks with exactly `npm run lint`, `npm run typecheck` and `npm test` from the repository root. Commands outside your allowed tools are denied without a prompt.",
@@ -192,7 +191,7 @@ run_agent() {
   "${claudeCommand[@]}" <<<"$prompt" >"$logFile" 2>&1 || status=$?
   report=$(jq -rR 'fromjson? | select(.type? == "result") | .result // empty' "$logFile")
   printf '%s\n' "${report:-(no final report in the log)}"
-  if [[ $status == 124 ]]; then
+  if [[ $status == 124 || $status == 137 ]]; then
     say "the agent timed out after $agentTimeout (failed)"
     return 1
   fi
@@ -215,15 +214,15 @@ handle_alert() {
   say "new incident $key"
   if [[ $environment != dev && $environment != production ]]; then
     skip "$key" "environment is not dev or production"
-    return 0
+    return
   fi
   if [[ ! $version =~ ^[0-9a-f]{40}$ ]]; then
     skip "$key" "version is not a 40-character commit SHA"
-    return 0
+    return
   fi
   if ! git cat-file -e "$version^{commit}" 2>/dev/null; then
     skip "$key" "version is not a commit in this repository"
-    return 0
+    return
   fi
   if [[ -n $(git status --porcelain) ]]; then
     say "the working tree is not clean; $key will be retried on the next poll"
@@ -236,13 +235,17 @@ handle_alert() {
     printf '<<<"$prompt"\nprompt:\n%s\n' "$prompt"
     return 0
   fi
-  record "$key"
+  record "$key" || return 1
   run_agent "$prompt" "$environment"
 }
 
 # Returns 1 when the poll or an agent failed.
 poll_once() {
   local response alerts alert hasFailed=false
+  if ! is_valid_state; then
+    say "poll failed: $stateFile is not a JSON array of keys; fix or remove it" >&2
+    return 1
+  fi
   if ! response=$(read_alerts); then
     say "poll failed: could not read the alerts" >&2
     return 1
