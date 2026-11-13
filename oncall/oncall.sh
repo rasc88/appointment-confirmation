@@ -107,8 +107,11 @@ disallowedTools=(
   "Bash(git push * -f*)" "Bash(git push *--force*)" "Bash(git push *+*)" "Bash(git push * -d*)"
   "Bash(git push *--delete*)" "Bash(git push *--mirror*)" "Bash(git push *--all*)"
   "Bash(git push *--receive-pack*)" "Bash(git push *--exec*)"
-  "Bash(git push *:*main*)" "Bash(git push *:*$base*)"
+  "Bash(git push *:*main*)"
 )
+if [[ $base != main ]]; then
+  disallowedTools+=("Bash(git push *:*$base*)")
+fi
 claudeCommand=(
   timeout "$agentTimeout" env -u GRAFANA_TOKEN
   claude -p --agent on-call-engineer --setting-sources project --permission-mode dontAsk
