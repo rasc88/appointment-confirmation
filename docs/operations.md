@@ -342,6 +342,14 @@ parameter left out of `--parameter-overrides`, so this command keeps
 whatever `IsCloudFrontEnabled` the stack has; only passing
 `IsCloudFrontEnabled=true` or `false` changes it.
 
+The deploy role also trusts GitHub's immutable OIDC subject, whose prefix
+comes from `GitHubSubjectPrefix`. Read it with
+`gh api repos/<owner>/<repo>/actions/oidc/customization/sub` and use its
+`sub_claim_prefix`. The default fits `rasc88/appointment-confirmation`; for
+a fork or another repository pass `GitHubSubjectPrefix=<sub_claim_prefix>`
+in `--parameter-overrides` on create or update. An existing stack picks up
+the default on its next update without passing it.
+
 > **Warning:** a different `AmiId` replaces the instance, which deletes
 > both databases.
 

@@ -14,6 +14,10 @@ Parameters:
     Type: String
     Default: rasc88/appointment-confirmation
     Description: owner/name of the public repository the instance clones and GitHub Actions deploys from.
+  GitHubSubjectPrefix:
+    Type: String
+    Default: repo:rasc88@63172676/appointment-confirmation@1453095622
+    Description: The sub_claim_prefix from gh api repos/<owner>/<repo>/actions/oidc/customization/sub (decision 43).
   ExistingGitHubOidcProviderArn:
     Type: String
     Default: ""
@@ -292,6 +296,9 @@ Resources:
                   - !Sub repo:${GitHubRepository}:ref:refs/heads/main
                   - !Sub repo:${GitHubRepository}:environment:dev
                   - !Sub repo:${GitHubRepository}:environment:production
+                  - !Sub ${GitHubSubjectPrefix}:ref:refs/heads/main
+                  - !Sub ${GitHubSubjectPrefix}:environment:dev
+                  - !Sub ${GitHubSubjectPrefix}:environment:production
       Policies:
         - PolicyName: run-deploy-command
           PolicyDocument:
