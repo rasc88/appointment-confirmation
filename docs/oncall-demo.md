@@ -124,8 +124,8 @@ URL is replaced by `https://<stack>.grafana.net`.
 | 23:19:52 | Poller records the incident key in `oncall/state.json` and starts the agent; log `20261114-231952-dev.jsonl` |
 | 23:20:28 | Agent runs `npm test` with the regression assertion added, before the fix: 7 failures, all client confirm `500` |
 | 23:23:56 | Agent applies the fix and runs `npm test` again |
-| 23:32:12 | That `npm test` is killed (exit 137): the Bash tool timed out on the roughly 5-minute suite. The first session ends there, with no issue or pull request yet |
-| 2026-11-15 00:00:23 | Owner resumes the same session (same id, same allowed and disallowed tools, a longer Bash timeout); log `20261115-000023-dev-resume.jsonl` |
+| 23:32:12 | That `npm test` is killed with exit 137 after 8 min 16 s; the exact cause wasn't established (the machine was under heavy load, and a concurrent test run of another branch was sharing `appointments_test`). The first session ends there, with no issue or pull request yet |
+| 2026-11-15 00:00:23 | Owner resumes the same session (same id, same allowed and disallowed tools) with a note to rerun the tests and finish; log `20261115-000023-dev-resume.jsonl` |
 | 00:14:30 | `npm test` passes (backend 708/708, frontend 605/605), then `npm run lint` and `npm run typecheck` pass |
 | 00:14:50 | Fix committed (`38c4e7d`) and pushed to `oncall-client-confirm-staff-fk` |
 | 00:15:06 | Incident issue [#71](https://github.com/rasc88/appointment-confirmation/issues/71) opened (`mvp`, with the incident key) |
@@ -162,8 +162,8 @@ appointment" also assert `staffMemberId: alex.id`. That test fails at
 
 Where it did not go smoothly:
 
-- The first `npm test` after the fix was killed by the Bash tool's timeout
-  (above); the owner resumed the session rather than start a new agent, so
+- The first `npm test` after the fix was killed with exit 137 after
+  8 min 16 s, cause not established (above); the owner resumed the session rather than start a new agent, so
   the incident still has one agent and one key.
 - In the resumed session, the first two `npm test` runs failed unrelated
   staff and sign-in tests (`staff-create`, `auth-routes`, `staff-routes`,
@@ -194,6 +194,9 @@ Where it did not go smoothly:
   was deployed. The run before it, 2026-11-13 21:35, is the merge of #68.
   The agent cannot start a workflow (`gh workflow` and `gh run` are
   disallowed).
+- The successful `Deploy` at 00:30:53 came from the orchestrator's merge
+  of [#74](https://github.com/rasc88/appointment-confirmation/pull/74)
+  (the deploy-role fix, `f3f6017`), outside the agent.
 - `Promote to production` ([runs](https://github.com/rasc88/appointment-confirmation/actions/workflows/promote.yml)):
   no runs at all.
 
