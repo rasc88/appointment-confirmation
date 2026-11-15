@@ -754,6 +754,24 @@ open to the whole internet (IPv4 only); and the URLs change when
 CloudFront is switched back on, which breaks confirmation links already
 sent with the `http://` address.
 
+### 43. The deploy role trusts both the classic and the immutable GitHub OIDC subject
+
+The `DeployRole` trust policy lists each of `ref:refs/heads/main`,
+`environment:dev` and `environment:production` twice: once as
+`repo:${GitHubRepository}:...` and once as `${GitHubSubjectPrefix}:...`,
+where the parameter `GitHubSubjectPrefix` defaults to
+`repo:rasc88@63172676/appointment-confirmation@1453095622`.
+
+Why:
+- **A separate parameter**: the immutable prefix holds the owner and
+  repository IDs, which CloudFormation cannot derive from
+  `GitHubRepository`, so it defaults to this repository's value and the
+  existing deploy commands need no change.
+- **Both forms**: a repository with or without immutable subjects can
+  assume the role, and the match stays exact (`StringEquals`).
+
+The IDs are public, not secrets.
+
 ## Process
 
 ### 13. One agent at a time
