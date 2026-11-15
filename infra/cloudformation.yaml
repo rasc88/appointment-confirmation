@@ -24,6 +24,11 @@ Parameters:
     Type: String
     Default: pl-3b927c52
     Description: The com.amazonaws.global.cloudfront.origin-facing managed prefix list in us-east-1.
+  IsCloudFrontEnabled:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+    Description: false creates no CloudFront and serves dev and prod over plain HTTP on the Elastic IP (decision 42).
 
 Rules:
   OnlyUsEast1:
@@ -35,6 +40,7 @@ Rules:
 
 Conditions:
   CreateGitHubOidcProvider: !Equals [!Ref ExistingGitHubOidcProviderArn, ""]
+  CreateCloudFront: !Equals [!Ref IsCloudFrontEnabled, "true"]
 
 Resources:
   Vpc:
@@ -89,11 +95,18 @@ Resources:
       VpcId: !Ref Vpc
       # One rule: a prefix-list reference counts as the list's maximum size against the rules quota.
       SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 8081
-          ToPort: 8082
-          SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
-          Description: CloudFront to dev and prod
+        - !If
+          - CreateCloudFront
+          - IpProtocol: tcp
+            FromPort: 8081
+            ToPort: 8082
+            SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+            Description: CloudFront to dev and prod
+          - IpProtocol: tcp
+            FromPort: 8081
+            ToPort: 8082
+            CidrIp: 0.0.0.0/0
+            Description: Internet to dev and prod (no CloudFront)
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0
@@ -190,6 +203,7 @@ Resources:
 
   DevDistribution:
     Type: AWS::CloudFront::Distribution
+    Condition: CreateCloudFront
     Properties:
       DistributionConfig:
         Comment: !Sub ${AWS::StackName} dev
@@ -215,6 +229,7 @@ Resources:
 
   ProdDistribution:
     Type: AWS::CloudFront::Distribution
+    Condition: CreateCloudFront
     Properties:
       DistributionConfig:
         Comment: !Sub ${AWS::StackName} prod
@@ -243,14 +258,14 @@ Resources:
     Properties:
       Name: /appointment-confirmation/dev/public-base-url
       Type: String
-      Value: !Sub https://${DevDistribution.DomainName}
+      Value: !If [CreateCloudFront, !Sub "https://${DevDistribution.DomainName}", !Sub "http://${ElasticIp}:8081"]
 
   ProdPublicBaseUrl:
     Type: AWS::SSM::Parameter
     Properties:
       Name: /appointment-confirmation/prod/public-base-url
       Type: String
-      Value: !Sub https://${ProdDistribution.DomainName}
+      Value: !If [CreateCloudFront, !Sub "https://${ProdDistribution.DomainName}", !Sub "http://${ElasticIp}:8082"]
 
   GitHubOidcProvider:
     Type: AWS::IAM::OIDCProvider
@@ -297,10 +312,10 @@ Resources:
 Outputs:
   DevUrl:
     Description: Dev address, stored in /appointment-confirmation/dev/public-base-url
-    Value: !Sub https://${DevDistribution.DomainName}
+    Value: !If [CreateCloudFront, !Sub "https://${DevDistribution.DomainName}", !Sub "http://${ElasticIp}:8081"]
   ProdUrl:
     Description: Production address, stored in /appointment-confirmation/prod/public-base-url
-    Value: !Sub https://${ProdDistribution.DomainName}
+    Value: !If [CreateCloudFront, !Sub "https://${ProdDistribution.DomainName}", !Sub "http://${ElasticIp}:8082"]
   InstanceId:
     Description: The instance the deploy workflows (#19) send commands to
     Value: !Ref Instance

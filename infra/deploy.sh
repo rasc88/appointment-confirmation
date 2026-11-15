@@ -62,6 +62,11 @@ if [[ -z "$public_base_url" ]]; then
   echo "Missing parameter $param_prefix/public-base-url" >&2
   exit 1
 fi
+# Only CloudFront sets X-Forwarded-For; without it the header is the client's own (decision 42).
+trust_proxy=0
+if [[ "$public_base_url" == https://* ]]; then
+  trust_proxy=1
+fi
 otlp_endpoint="$(read_param otlp-endpoint)"
 otlp_headers="$(read_param otlp-headers)"
 if [[ -n "$otlp_endpoint" && -z "$otlp_headers" ]]; then
@@ -79,6 +84,7 @@ fi
   echo "HOST_PORT='$host_port'"
   echo "APP_ENV='$app_env'"
   echo "PUBLIC_BASE_URL='$public_base_url'"
+  echo "TRUST_PROXY='$trust_proxy'"
   echo "SESSION_SECRET='$session_secret'"
   echo "POSTGRES_PASSWORD='$postgres_password'"
   echo "DATABASE_URL='postgresql://app:$postgres_password@db:5432/appointments'"

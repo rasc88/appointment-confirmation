@@ -3,6 +3,7 @@ export interface Config {
   publicBaseUrl: string;
   environment: string;
   version: string;
+  isBehindProxy: boolean;
 }
 
 function isHttpUrl(value: string) {
@@ -23,5 +24,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (publicBaseUrl === undefined || !isHttpUrl(publicBaseUrl)) {
     throw new Error('PUBLIC_BASE_URL must be set to an http: or https: URL');
   }
-  return { sessionSecret, publicBaseUrl, environment: env.APP_ENV ?? 'unknown', version: env.APP_VERSION ?? 'unknown' };
+  return {
+    sessionSecret,
+    publicBaseUrl,
+    environment: env.APP_ENV ?? 'unknown',
+    version: env.APP_VERSION ?? 'unknown',
+    isBehindProxy: env.TRUST_PROXY !== '0',
+  };
 }

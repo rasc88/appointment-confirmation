@@ -47,6 +47,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   vi.mocked(confirmationToken.hashConfirmationToken).mockClear();
 });
@@ -417,6 +418,16 @@ describe('public rate limit', () => {
 
     expect((await send('get', 'x', '198.51.100.7')).status).toBe(404);
     expect((await send('get', 'x')).status).toBe(429);
+  });
+
+  it('ignores X-Forwarded-For when TRUST_PROXY is 0', async () => {
+    vi.stubEnv('TRUST_PROXY', '0');
+    app = createApp({ now: () => now });
+    for (let attempt = 1; attempt <= 30; attempt += 1) {
+      expect((await send('get', 'x', `198.51.100.${attempt}`)).status).toBe(404);
+    }
+
+    expect((await send('get', 'x', '198.51.100.31')).status).toBe(429);
   });
 
   it('gives each app its own counters', async () => {

@@ -62,6 +62,39 @@ aws cloudformation deploy --region us-east-1 \
 
 The CloudFront distributions take several minutes.
 
+### Deploy without CloudFront
+
+If the account is not yet verified for CloudFront ("Your account must be
+verified before you can add new CloudFront resources"), create the stack
+with CloudFront switched off (decision 42):
+
+```sh
+aws cloudformation deploy --region us-east-1 \
+  --stack-name appointment-confirmation \
+  --template-file infra/cloudformation.yaml \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides AmiId="$AMI_ID" IsCloudFrontEnabled=false
+```
+
+The outputs are then `http://<Elastic IP>:8081` (dev) and
+`http://<Elastic IP>:8082` (production); set `DEV_URL` and `PROD_URL` to
+them as usual. Traffic is unencrypted, so the session cookie has no
+`Secure` attribute. The `Verify` curl lines work the same against these
+URLs, except that the connection is refused, rather than `502` or `504`,
+until the first deploy.
+
+To switch CloudFront back on once AWS verifies the account, run the
+"Update the stack" command with `IsCloudFrontEnabled=true` added to
+`--parameter-overrides` (same `AmiId`, so the instance is kept). The URLs
+then change to the CloudFront addresses:
+
+1. Update the `DEV_URL` and `PROD_URL` repository variables to the new
+   outputs.
+2. Re-run `Deploy` (or push to `main`) and run `Promote to production`:
+   `deploy.sh` reads `public-base-url` only at deploy time.
+3. Confirmation links already sent with the `http://` address stop
+   working, because the security group then admits only CloudFront.
+
 ### Outputs
 
 ```sh
@@ -303,6 +336,11 @@ aws cloudformation deploy --region us-east-1 \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides AmiId="$AMI_ID"
 ```
+
+`aws cloudformation deploy` keeps the stack's current value for any
+parameter left out of `--parameter-overrides`, so this command keeps
+whatever `IsCloudFrontEnabled` the stack has; only passing
+`IsCloudFrontEnabled=true` or `false` changes it.
 
 > **Warning:** a different `AmiId` replaces the instance, which deletes
 > both databases.
