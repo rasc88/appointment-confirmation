@@ -41,7 +41,7 @@ export function createApp(options: { now?: () => Date; frontendDir?: string } = 
   const { now = () => new Date(), frontendDir } = options;
   const config = readConfig();
   const app = express();
-  app.set('trust proxy', 1);
+  app.set('trust proxy', config.isBehindProxy ? 1 : false);
   app.use(recordRequestTelemetry);
   app.use(setSecurityHeaders);
 

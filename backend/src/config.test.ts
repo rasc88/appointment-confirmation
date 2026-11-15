@@ -11,6 +11,7 @@ describe('readConfig', () => {
       publicBaseUrl: 'http://localhost:5173',
       environment: 'local',
       version: 'v1.2.3',
+      isBehindProxy: true,
     });
     expect(readConfig({ ...valid, PUBLIC_BASE_URL: 'https://d111111abcdef8.cloudfront.net' }).publicBaseUrl).toBe(
       'https://d111111abcdef8.cloudfront.net',
@@ -19,6 +20,14 @@ describe('readConfig', () => {
 
   it('reports environment and version as unknown when unset', () => {
     expect(readConfig(valid)).toMatchObject({ environment: 'unknown', version: 'unknown' });
+  });
+
+  it.each([
+    [undefined, true],
+    ['1', true],
+    ['0', false],
+  ])('reads TRUST_PROXY %j as isBehindProxy %j', (trustProxy, isBehindProxy) => {
+    expect(readConfig({ ...valid, TRUST_PROXY: trustProxy }).isBehindProxy).toBe(isBehindProxy);
   });
 
   it.each([undefined, '', 's'.repeat(31)])('rejects SESSION_SECRET %j', (secret) => {

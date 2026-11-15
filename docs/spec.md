@@ -422,7 +422,7 @@ A client confirm or cancel on a `cancelled`, `attended` or `no_show` appointment
 
 - Client names, phone numbers, and confirmation tokens never appear in logs, traces, or metrics.
 - Requests are recorded only by their Express route template, for example `/v1/public/appointments/:token`; page loads the SPA fallback serves, `/c/{token}` included, are recorded as `/{*splat}`. Raw paths, query strings, and request headers are never recorded.
-- Public endpoints are rate-limited per IP to slow token guessing: 30 requests per IP in a fixed 60-second window, counting every request to the three public endpoints, after which they return `429` with `Retry-After` until the window ends (decision 29). Behind CloudFront, the client IP comes from the `X-Forwarded-For` header CloudFront adds.
+- Public endpoints are rate-limited per IP to slow token guessing: 30 requests per IP in a fixed 60-second window, counting every request to the three public endpoints, after which they return `429` with `Retry-After` until the window ends (decision 29). Behind CloudFront, the client IP comes from the `X-Forwarded-For` header CloudFront adds. Without CloudFront (decision 42), it is the connection's address.
 - Sign-in is rate-limited per email and IP: after 10 failed sign-ins within 15 minutes, every sign-in for that IP and email returns `429` until the window ends.
 - All state-changing staff endpoints require the session cookie and reject cross-site requests: a request whose `Origin` header is not the app's own origin is rejected with `403`. Requests without an `Origin` header pass.
 - Secrets come only from environment variables, never from the repository.

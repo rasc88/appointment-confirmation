@@ -722,6 +722,38 @@ incident issue and alone promotes to production. Permission rules match the
 command text, so a spelling outside the allowlist is denied even when it
 is harmless.
 
+### 42. CloudFront can be switched off with `IsCloudFrontEnabled`; then the app is served over HTTP on the Elastic IP and trusts no proxy
+
+`infra/cloudformation.yaml` has a parameter `IsCloudFrontEnabled`
+(`"true"` by default) and a condition `CreateCloudFront`. With `false` the
+two distributions are not created, the one security group rule admits TCP
+8081-8082 from `0.0.0.0/0` instead of the CloudFront prefix list, and the
+`public-base-url` parameters and the `DevUrl`/`ProdUrl` outputs are
+`http://<Elastic IP>:8081` and `:8082`. `infra/deploy.sh` writes
+`TRUST_PROXY='1'` to the environment's `.env` when the base URL starts with
+`https://` and `'0'` otherwise; `infra/compose.yaml` passes it with default
+`1`, and the backend sets Express `trust proxy` to `false` only when it is
+exactly `'0'`.
+
+Why:
+- **A switch, not a second template**: the account is not yet verified for
+  CloudFront (two creates failed), the owner must deploy today, and the
+  rubric asks only for a public URL. With the default the template
+  resolves to exactly what it was, so switching back is a stack update
+  that keeps the instance.
+- **Trust proxy follows the URL scheme**: with nothing in front,
+  `X-Forwarded-For` is whatever the client sends, and it would pick the
+  rate-limit key (decisions 27 and 29). An explicit variable that
+  `deploy.sh` derives, rather than the backend reading `PUBLIC_BASE_URL`,
+  keeps the existing tests, which send `X-Forwarded-For` with an `http:`
+  base URL, unchanged.
+
+Cost accepted: plain HTTP, so the session cookie (without `Secure`) and
+the staff password cross the network in clear text; ports 8081-8082 are
+open to the whole internet (IPv4 only); and the URLs change when
+CloudFront is switched back on, which breaks confirmation links already
+sent with the `http://` address.
+
 ## Process
 
 ### 13. One agent at a time
