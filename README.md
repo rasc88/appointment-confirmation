@@ -22,8 +22,8 @@ confirmed, cancelled, or at risk of becoming a no-show.
 Expected behaviour:
 
 - An appointment is `pending`, `confirmed`, `cancelled`, `attended`, or
-  `no_show` (no-show). Confirm and cancel happen before the start time;
-  attended and no-show are marked after it
+  `no_show` (no-show). The app offers confirm and cancel only before the
+  start time; attended and no-show are marked after it
   ([spec section 7](docs/spec.md#7-appointment-state-machine)).
 - A `pending` or `confirmed` appointment that has not started is **at
   risk** with one or both reasons
@@ -46,8 +46,18 @@ The rest is in the full product and technical specification,
 
 ## Live demo
 
-- Dev: Not deployed yet - the repository owner adds this address after the first deploy (#64).
-- Production: Not deployed yet - the repository owner adds this address after the first deploy (#64).
+- Dev: [http://184.198.16.32:8081](http://184.198.16.32:8081)
+  ([health](http://184.198.16.32:8081/v1/health))
+- Production: [http://184.198.16.32:8082](http://184.198.16.32:8082)
+  ([health](http://184.198.16.32:8082/v1/health)), no demo login
+
+Both `/v1/health` answers show the same `version`, the commit SHA: the
+owner promoted the image dev runs to production.
+
+**Plain HTTP for now**: AWS has not yet verified the account for
+CloudFront, so the app runs without it, straight on the instance
+([decision 42](docs/decisions.md#42-cloudfront-can-be-switched-off-with-iscloudfrontenabled-then-the-app-is-served-over-http-on-the-elastic-ip-and-trusts-no-proxy)).
+Passwords and data cross the network unencrypted: use only made-up data.
 
 Demo logins, **dev only**: `alex@demo.test` and `sam@demo.test`, password
 `demo1234`. Production has no demo data and no demo login.
@@ -118,10 +128,10 @@ has 12 criteria. Where to find the evidence for each:
 | Application | `docker compose up --build` ([Run locally](#run-locally)), [frontend/](frontend/), [backend/](backend/), [backend/prisma/schema.prisma](backend/prisma/schema.prisma) |
 | Testing | `npm test` and `npm run test:e2e` ([Tests](#tests)), [e2e/tests/](e2e/tests/); examples: backend integration [backend/src/public-routes.test.ts](backend/src/public-routes.test.ts), unit [backend/src/at-risk.test.ts](backend/src/at-risk.test.ts), frontend [frontend/src/pages/DashboardPage.test.tsx](frontend/src/pages/DashboardPage.test.tsx) |
 | Containerization | [Dockerfile](Dockerfile), [docker-compose.yaml](docker-compose.yaml) |
-| Deployment | [infra/cloudformation.yaml](infra/cloudformation.yaml), [infra/deploy.sh](infra/deploy.sh), [infra/remote-deploy.sh](infra/remote-deploy.sh), [spec section 10.4](docs/spec.md#104-deployment-layout-and-cost), [Live demo](#live-demo), [docs/operations.md](docs/operations.md). Not deployed yet: the live URLs come with [#64](https://github.com/rasc88/appointment-confirmation/issues/64) |
-| CI/CD | [ci.yml](.github/workflows/ci.yml) (three required checks on every pull request; [runs](https://github.com/rasc88/appointment-confirmation/actions/workflows/ci.yml)), [deploy.yml](.github/workflows/deploy.yml) (every merge to `main` deploys to dev; [runs](https://github.com/rasc88/appointment-confirmation/actions/workflows/deploy.yml)), [promote.yml](.github/workflows/promote.yml) (manual, owner-approved promotion of the image dev runs; [runs](https://github.com/rasc88/appointment-confirmation/actions/workflows/promote.yml)), and the rollback line under [Operations](#operations) |
-| Observability | [spec section 15](docs/spec.md#15-observability-and-alerting), [backend/src/telemetry.ts](backend/src/telemetry.ts), [backend/src/request-telemetry.ts](backend/src/request-telemetry.ts), [backend/src/metrics.ts](backend/src/metrics.ts), [backend/src/logger.ts](backend/src/logger.ts), [observability/dashboard.json](observability/dashboard.json), and the test that proves no client data is exported: [backend/src/telemetry.test.ts](backend/src/telemetry.test.ts), "records no token, client name, phone, search term or /c/ path". Not there yet: Grafana UI evidence, which comes with [#64](https://github.com/rasc88/appointment-confirmation/issues/64) |
-| Alerting on User Impact | [spec section 15.2](docs/spec.md#152-alert): "Clients cannot confirm" fires on failed client confirms or cancels, 1 or more in production or 3 or more in dev, within 5 minutes; [observability/alert-rule.json](observability/alert-rule.json) |
+| Deployment | [infra/cloudformation.yaml](infra/cloudformation.yaml), [infra/deploy.sh](infra/deploy.sh), [infra/remote-deploy.sh](infra/remote-deploy.sh), [spec section 10.4](docs/spec.md#104-deployment-layout-and-cost), [Live demo](#live-demo), [docs/operations.md](docs/operations.md). Running on plain HTTP without CloudFront ([decision 42](docs/decisions.md#42-cloudfront-can-be-switched-off-with-iscloudfrontenabled-then-the-app-is-served-over-http-on-the-elastic-ip-and-trusts-no-proxy)): dev [http://184.198.16.32:8081](http://184.198.16.32:8081), production [http://184.198.16.32:8082](http://184.198.16.32:8082) |
+| CI/CD | [ci.yml](.github/workflows/ci.yml) (three required checks on every pull request; [runs](https://github.com/rasc88/appointment-confirmation/actions/workflows/ci.yml)), [deploy.yml](.github/workflows/deploy.yml) (every merge to `main` deploys to dev; [runs](https://github.com/rasc88/appointment-confirmation/actions/workflows/deploy.yml), [a green run](https://github.com/rasc88/appointment-confirmation/actions/runs/43658544011): build and deploy-dev), [promote.yml](.github/workflows/promote.yml) (manual, owner-approved promotion of the image dev runs; [runs](https://github.com/rasc88/appointment-confirmation/actions/workflows/promote.yml), [a green run approved by the owner](https://github.com/rasc88/appointment-confirmation/actions/runs/43659385454)), and the rollback line under [Operations](#operations) |
+| Observability | [spec section 15](docs/spec.md#15-observability-and-alerting), [backend/src/telemetry.ts](backend/src/telemetry.ts), [backend/src/request-telemetry.ts](backend/src/request-telemetry.ts), [backend/src/metrics.ts](backend/src/metrics.ts), [backend/src/logger.ts](backend/src/logger.ts), [observability/dashboard.json](observability/dashboard.json), and the test that proves no client data is exported: [backend/src/telemetry.test.ts](backend/src/telemetry.test.ts), "records no token, client name, phone, search term or /c/ path". Grafana screenshots: [the dev dashboard](docs/images/grafana-dashboard.png), [a trace with its log lines](docs/images/grafana-trace-logs.png) |
+| Alerting on User Impact | [spec section 15.2](docs/spec.md#152-alert): "Clients cannot confirm" fires on failed client confirms or cancels, 1 or more in production or 3 or more in dev, within 5 minutes; [observability/alert-rule.json](observability/alert-rule.json); screenshot: [the alert in Grafana](docs/images/grafana-alert.png) |
 | On-Call Agent | [spec section 15.3](docs/spec.md#153-on-call-agent), [docs/team/on-call-engineer.md](docs/team/on-call-engineer.md), [.claude/agents/on-call-engineer.md](.claude/agents/on-call-engineer.md), [oncall/oncall.sh](oncall/oncall.sh), [#22](https://github.com/rasc88/appointment-confirmation/issues/22). The agent wakes on a firing alert and answers with a fix pull request with a regression test and an incident issue; the fix merges only through QA and CI, and reaches production only through the owner's promotion (decision 41). Not there yet: the recorded demo run, [#62](https://github.com/rasc88/appointment-confirmation/issues/62) |
 
 ## How the agents built it
@@ -188,7 +198,7 @@ Worked examples:
 | Frontend | Vite, React, TypeScript |
 | Backend | Node.js 24, Express 5, TypeScript, Prisma, PostgreSQL 17 |
 | Container | One image serving the API under `/v1` and the built frontend |
-| Hosting | One AWS EC2 instance running dev and production, each behind CloudFront |
+| Hosting | One AWS EC2 instance running dev and production; CloudFront in front is off for now, so plain HTTP ([decision 42](docs/decisions.md#42-cloudfront-can-be-switched-off-with-iscloudfrontenabled-then-the-app-is-served-over-http-on-the-elastic-ip-and-trusts-no-proxy)) |
 | CI/CD | GitHub Actions |
 | Telemetry | OpenTelemetry to Grafana Cloud |
 
