@@ -441,3 +441,6 @@ poller handles it only if one of its 60-second polls sees it `Alerting`.
 What to do with the result: review the incident issue the agent opened.
 Its pull request goes through QA and CI like any other change, and reaches
 production only when you promote it.
+
+A recorded run against an injected fault, with the timeline and the
+agent's transcript summary: [oncall-demo.md](oncall-demo.md).
