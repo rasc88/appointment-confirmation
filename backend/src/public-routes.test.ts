@@ -244,6 +244,7 @@ describe('POST /v1/public/appointments/{token}/confirm', () => {
       confirmedBy: 'client',
       cancelledBy: 'staff',
       statusChangedAt: now,
+      staffMemberId: alex.id,
     });
   });
 
