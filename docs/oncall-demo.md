@@ -167,10 +167,10 @@ Where it did not go smoothly:
   the incident still has one agent and one key.
 - In the resumed session, the first two `npm test` runs failed unrelated
   staff and sign-in tests (`staff-create`, `auth-routes`, `staff-routes`,
-  a different set each time): another test run was using the shared
-  `appointments_test` database at the same time, most likely the one left
-  over from the killed run. The agent could not list processes (denied)
-  and reran; the last two runs were clean.
+  a different set each time). The agent's guess was that another test
+  run, most likely one left over from the killed run, was using the shared
+  `appointments_test` database at the same time; it could not list
+  processes (denied) and reran; the last two runs were clean.
 - A few compound Bash commands were denied by `dontAsk` and the agent
   split them into single allowed commands.
 - `gh issue comment` is not in the allowlist, so the agent could not post
